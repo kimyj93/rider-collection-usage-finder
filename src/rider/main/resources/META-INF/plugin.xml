@@ -1,0 +1,34 @@
+<idea-plugin require-restart="true">
+  <id>com.jetbrains.rider.plugins.collectionusagefinder</id>
+  <name>CollectionUsageFinder</name>
+  <version>_PLACEHOLDER_</version>
+  <vendor>CollectionUsageFinder Maintainers</vendor>
+  <idea-version since-build="_PLACEHOLDER_" until-build="_PLACEHOLDER_" />
+  <depends>com.intellij.modules.rider</depends>
+
+  <description>
+<![CDATA[
+<p>Collection-specific usage search for mutable BCL collections in C#.</p>
+]]>
+  </description>
+
+  <actions>
+    <action
+        id="CollectionUsageFinder.FindCollectionUsagesLauncher"
+        class="com.jetbrains.rider.plugins.collectionusagefinder.FindCollectionUsagesFrontendAction"
+        text="Find Collection Usages"
+        description="Find collection-specific usages for supported C# BCL collections">
+      <add-to-group group-id="ToolsMenu" anchor="last" />
+      <add-to-group group-id="EditorPopupMenu" anchor="last" />
+      <keyboard-shortcut keymap="$default" first-keystroke="control F12" />
+    </action>
+    <action
+        id="CollectionUsageFinder.Diagnostics"
+        class="com.jetbrains.rider.plugins.collectionusagefinder.CollectionUsageFinderDiagnosticsAction"
+        text="CollectionUsageFinder Diagnostics"
+        description="Show frontend diagnostics for CollectionUsageFinder">
+      <add-to-group group-id="ToolsMenu" anchor="last" />
+    </action>
+  </actions>
+
+</idea-plugin>
