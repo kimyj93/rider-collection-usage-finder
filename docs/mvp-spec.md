@@ -11,7 +11,7 @@ The MVP focuses on answering this question:
 ## Product Goals
 
 - Provide a collection-specific search that is more useful than default read/write usage classification for mutable collections.
-- Make common collection usage sites easy to review from a single results tab.
+- Make common collection usage sites easy to review from a focused results popup.
 - Surface element aliasing/escape sites that often hide later writes.
 - Keep the first version narrow enough to validate whether the workflow is worth deepening.
 
@@ -83,6 +83,7 @@ list.Sort();
 list.Reverse();
 dictionary.TryAdd(key, value);
 list.RemoveAll(predicate);
+dictionary?.Clear();
 set.RemoveWhere(predicate);
 set.UnionWith(other);
 set.IntersectWith(other);
@@ -157,6 +158,8 @@ Supported shape:
 
 ```csharp
 list[i].Name = value;
+dictionary[infoList[i].Id].Amount = value;
+dictionary[a[b[c[i]]]].Amount = value;
 ```
 
 ### Local Alias Tracking
@@ -218,22 +221,30 @@ The advanced action is not required for the first implementation.
 
 ### Results UI
 
-Use the existing ReSharper/Rider `Find Results` window.
+Use a dedicated Rider popup owned by CollectionUsageFinder.
 
 Reasons:
 
-- matches the user's existing search workflow
-- supports navigation, tabs, grouping, and filtering already
-- avoids building a custom tool window before the feature proves itself
+- avoids exposing Rider's built-in read/write usage filter buttons, which do not match this plugin's categories
+- keeps invocation shallow: right-click or `Ctrl+F12` should show results directly
+- supports the plugin's own category labels without fighting the default Find Results UI
+- shows a compact total/filtered result count
+- includes a read-only preview pane for the selected result's surrounding code
 
 ### Result Grouping
 
 Preferred top-level groups:
 
-- `Collection Structure Usage`
-- `Element Write`
-- `Element Alias`
-- `Element Escape`
+- `원소 추가/삭제`
+- `내용물 수정`
+- `레퍼런스 넘기기`
+
+`Element Alias` and `Element Escape` are separate internal detection kinds, but the MVP UI groups both under `레퍼런스 넘기기`.
+
+### Result Filtering
+
+Each top-level category is filterable with a checkbox. The count label should show either the total count or
+`visible / total` when filters hide some results.
 
 ## Technical Shape
 
@@ -250,16 +261,19 @@ Likely pieces:
 
 ### Frontend
 
-Keep Rider frontend work minimal for MVP.
+The Rider frontend owns the results popup and navigation.
 
-- no custom RD model required unless the chosen action wiring demands it
-- no custom tool window in v1
+- request backend analysis through the RD protocol
+- render the returned result DTOs in a grouped popup
+- render category filter checkboxes and a selected-result preview pane
+- navigate selected rows to file offsets with `OpenFileDescriptor`
+- avoid a custom tool window until persistence/filtering becomes necessary
 
 ## Acceptance Criteria
 
 The MVP is successful if all of the following are true:
 
-- invoking the action on a supported collection symbol opens results in `Find Results`
+- invoking the action on a supported collection symbol opens the dedicated CollectionUsageFinder results popup
 - direct container usages are found reliably
 - direct element writes such as `list[i].Name = ...` are found
 - alias creation such as `var item = list[i]` is found

@@ -11,7 +11,8 @@ The repository currently contains:
 - an MVP specification for the first searchable feature set
 - a `Find Collection Usages` action enabled on supported C# BCL collection symbols
 - a default Rider keymap shortcut: `Ctrl+F12`
-- Find Results integration for detected collection structure usages, element writes, aliases, and escapes
+- a dedicated popup for detected collection structure usages, element writes, aliases, and escapes
+- result count, category filters, and a code preview pane in the popup
 
 Current search scope:
 
@@ -30,6 +31,15 @@ The action is registered with the Find Usages menu groups, not the Tools menu:
 - default shortcut: `Ctrl+F12`
 - action search: search for `Find Collection Usages`
 - editor context menu / Find Usages area when the caret is on a supported collection symbol
+
+Results open in a CollectionUsageFinder popup grouped by usage category:
+
+- `원소 추가/삭제`
+- `내용물 수정`
+- `레퍼런스 넘기기`
+
+The popup also shows the total/filtered result count, checkboxes for category filtering, and a read-only
+preview of the selected result's surrounding code.
 
 ## Spec
 

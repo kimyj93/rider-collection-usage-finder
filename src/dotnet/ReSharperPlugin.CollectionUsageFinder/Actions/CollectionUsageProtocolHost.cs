@@ -1,5 +1,7 @@
 #if RIDER
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using JetBrains.Annotations;
 using JetBrains.Application;
 using JetBrains.Application.Progress;
@@ -48,21 +50,15 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                     "RequestReceived",
                     request.FilePath + ":" + request.CaretOffset);
 
-                var response = ExecuteSearch(request);
-                if (!response.Success)
-                    MessageBox.ShowInfo(response.Message);
-
-                return response;
+                return ExecuteSearch(request);
             }
             catch (Exception exception)
             {
                 SetLastEvent("RequestFailed");
                 CollectionUsageBackendDiagnostics.AppendProtocolEvent("RequestFailed", exception.ToString());
-                var response = new CollectionUsageFindResponse(
+                return CreateFailureResponse(
                     false,
                     "CollectionUsageFinder backend failed:\n" + exception.Message);
-                MessageBox.ShowInfo(response.Message);
-                return response;
             }
         }
 
@@ -85,7 +81,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             {
                 SetLastEvent("SearchFailed");
                 CollectionUsageBackendDiagnostics.AppendProtocolEvent("SearchFailed", exception.ToString());
-                return new CollectionUsageFindResponse(
+                return CreateFailureResponse(
                     false,
                     "CollectionUsageFinder backend search failed:\n" + exception.Message);
             }
@@ -99,7 +95,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             {
                 SetLastEvent("SolutionNotFound");
                 CollectionUsageBackendDiagnostics.AppendProtocolEvent("SolutionNotFound", null);
-                return new CollectionUsageFindResponse(
+                return CreateFailureResponse(
                     false,
                     "Open a C# solution before running Find Collection Usages.");
             }
@@ -116,7 +112,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             {
                 SetLastEvent("TargetNotFound");
                 CollectionUsageBackendDiagnostics.AppendProtocolEvent("TargetNotFound", failureReason);
-                return new CollectionUsageFindResponse(false, failureReason);
+                return CreateFailureResponse(false, failureReason);
             }
 
             SetLastEvent("SearchStarted");
@@ -124,11 +120,50 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 "SearchStarted",
                 target.DisplayName + " (" + target.CollectionKind + ")");
 
-            CollectionUsageFindResultsRunner.Execute(solution, sourceFile, document, target);
+            var result = CollectionUsageFindResultsRunner.Analyze(solution, sourceFile, document, target);
+            var items = result.Items
+                .Select(item => new CollectionUsageResultItem(
+                    item.FilePath,
+                    item.StartOffset,
+                    item.Length,
+                    item.Line,
+                    item.Column,
+                    item.Kind,
+                    item.KindDisplayName,
+                    item.Text,
+                    item.PreviewText,
+                    item.PreviewStartLine,
+                    item.PreviewHighlightStart,
+                    item.PreviewHighlightLength))
+                .ToList();
 
             SetLastEvent("SearchCompleted");
-            CollectionUsageBackendDiagnostics.AppendProtocolEvent("SearchCompleted", target.DisplayName);
-            return new CollectionUsageFindResponse(true, "Search completed.");
+            CollectionUsageBackendDiagnostics.AppendProtocolEvent(
+                "SearchCompleted",
+                target.DisplayName + " (" + items.Count + ")");
+            return new CollectionUsageFindResponse(
+                true,
+                items.Count == 0
+                    ? "No collection-specific usages found for '" + target.DisplayName + "'."
+                    : string.Empty,
+                result.TargetName,
+                result.CollectionKind,
+                result.Scope.ToString(),
+                items);
+        }
+
+        [NotNull]
+        private static CollectionUsageFindResponse CreateFailureResponse(
+            bool success,
+            [NotNull] string message)
+        {
+            return new CollectionUsageFindResponse(
+                success,
+                message,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                new List<CollectionUsageResultItem>());
         }
 
         private static void SetLastEvent([NotNull] string eventName)

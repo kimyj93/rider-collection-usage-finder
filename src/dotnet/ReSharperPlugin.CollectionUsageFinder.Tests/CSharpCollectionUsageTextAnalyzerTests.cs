@@ -33,6 +33,22 @@ class C
         }
 
         [Test]
+        public void Analyze_FindsNullConditionalStructuralUsages()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.Dictionary<int, Item> map)
+    {
+        map?.Clear();
+    }
+}", "map");
+
+            Assert.That(occurrences.Single().Kind, Is.EqualTo(CollectionUsageKind.CollectionStructureUsage));
+            Assert.That(occurrences.Single().Text, Is.EqualTo("map?.Clear();"));
+        }
+
+        [Test]
         public void Analyze_FindsDictionaryTryAddAndListRemoveAllAsStructuralUsages()
         {
             var source = @"
@@ -194,6 +210,79 @@ class C
         }
 
         [Test]
+        public void Analyze_DoesNotTreatDirectIndexerComparisonsAsWrites()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> list, string name, Item item)
+    {
+        if (list[0].Name == name)
+            return;
+
+        if (list[1] == item)
+            return;
+    }
+}", "list");
+
+            Assert.That(occurrences, Is.Empty);
+        }
+
+        [Test]
+        public void Analyze_FindsCompoundMutationOperators()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> list, Item item)
+    {
+        list[0].Amount += 1;
+        list[1].Amount++;
+        list[2] ??= item;
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.ElementWrite,
+                CollectionUsageKind.ElementWrite,
+                CollectionUsageKind.CollectionStructureUsage
+            }));
+        }
+
+        [Test]
+        public void Analyze_FindsDictionaryElementWritesWithNestedIndexerInKey()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.Dictionary<int, Item> map, System.Collections.Generic.List<Info> infoList, int i)
+    {
+        map[infoList[i].Id].FreeAmount = infoList[i].FreeStack;
+    }
+}", "map");
+
+            Assert.That(occurrences.Single().Kind, Is.EqualTo(CollectionUsageKind.ElementWrite));
+            Assert.That(occurrences.Single().Text, Is.EqualTo("map[infoList[i].Id].FreeAmount = infoList[i].FreeStack;"));
+        }
+
+        [Test]
+        public void Analyze_FindsDictionaryElementWritesWithDeepNestedIndexerInKey()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.Dictionary<int, Item> map, int[] a, int[] b, int[] c, int i)
+    {
+        map[a[b[c[i]]]].Amount = 1;
+    }
+}", "map");
+
+            Assert.That(occurrences.Single().Kind, Is.EqualTo(CollectionUsageKind.ElementWrite));
+            Assert.That(occurrences.Single().Text, Is.EqualTo("map[a[b[c[i]]]].Amount = 1;"));
+        }
+
+        [Test]
         public void Analyze_FindsAliasCreationAndAliasElementWrite()
         {
             var occurrences = analyzer.Analyze(@"
@@ -210,6 +299,87 @@ class C
             {
                 CollectionUsageKind.ElementAlias,
                 CollectionUsageKind.ElementWrite
+            }));
+        }
+
+        [Test]
+        public void Analyze_DoesNotApplyAliasOutsideLexicalScope()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void FromCollection(System.Collections.Generic.Dictionary<int, Item> _brokenItems, int key)
+    {
+        var item = _brokenItems[key];
+        item.Name = string.Empty;
+    }
+
+    Item CreateItem(Info itemInfo)
+    {
+        var item = CreateNewItem();
+        item.UID = itemInfo.Id;
+        item.Amount = itemInfo.Amount;
+        return item;
+    }
+}", "_brokenItems");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "var item = _brokenItems[key];",
+                "item.Name = string.Empty;"
+            }));
+        }
+
+        [Test]
+        public void Analyze_DoesNotTreatAliasComparisonsAsWrites()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    Item GetBrokenItemByUid(System.Collections.Generic.Dictionary<int, Item> _brokenItems, int uid)
+    {
+        foreach (var item in _brokenItems)
+        {
+            if (item.Key == uid)
+                return item.Value;
+        }
+
+        return null;
+    }
+}", "_brokenItems");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.ElementAlias
+            }));
+            Assert.That(occurrences.Single().Text, Is.EqualTo("foreach (var item in _brokenItems)"));
+        }
+
+        [Test]
+        public void Analyze_DoesNotTreatAliasRelationalComparisonsAsWrites()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.Dictionary<int, Item> map)
+    {
+        foreach (var item in map)
+        {
+            if (item.Value.Amount >= 1)
+                return;
+
+            if (item.Value.Amount <= 10)
+                return;
+
+            if (item.Value != null)
+                return;
+        }
+    }
+}", "map");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.ElementAlias
             }));
         }
 
@@ -236,6 +406,31 @@ class C
         }
 
         [Test]
+        public void Analyze_DoesNotApplyForeachAliasOutsideLoopBody()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void FromCollection(System.Collections.Generic.List<Item> list)
+    {
+        foreach (var item in list)
+        {
+            item.Name = string.Empty;
+        }
+
+        var item = CreateNewItem();
+        item.UID = 1;
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "foreach (var item in list)",
+                "item.Name = string.Empty;"
+            }));
+        }
+
+        [Test]
         public void Analyze_FindsEscapes()
         {
             var occurrences = analyzer.Analyze(@"
@@ -257,6 +452,31 @@ class C
                 CollectionUsageKind.ElementEscape,
                 CollectionUsageKind.ElementEscape
             }));
+        }
+
+        [Test]
+        public void Analyze_ReportsEscapeAtCollectionElementInsteadOfStatementPrefix()
+        {
+            var source = @"
+class C
+{
+    Item previousItem;
+
+    void M(System.Collections.Generic.List<Item> items, int slot)
+    {
+        {
+            // comment before escape
+            previousItem = items[slot];
+        }
+    }
+}";
+
+            var occurrence = analyzer.Analyze(source, "items").Single();
+
+            Assert.That(occurrence.Kind, Is.EqualTo(CollectionUsageKind.ElementEscape));
+            Assert.That(occurrence.Text, Is.EqualTo("previousItem = items[slot];"));
+            Assert.That(occurrence.StartOffset, Is.EqualTo(source.IndexOf("items[slot]", System.StringComparison.Ordinal)));
+            Assert.That(occurrence.Line, Is.EqualTo(10));
         }
 
         [Test]

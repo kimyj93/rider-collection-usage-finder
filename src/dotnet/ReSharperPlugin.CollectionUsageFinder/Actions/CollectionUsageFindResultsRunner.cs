@@ -19,6 +19,8 @@ using JetBrains.ReSharper.Psi;
 using JetBrains.ReSharper.Psi.DataContext;
 using JetBrains.ReSharper.Psi.Files;
 using JetBrains.ReSharper.Psi.Impl;
+using JetBrains.ReSharper.Psi.Resolve;
+using JetBrains.ReSharper.Psi.Search;
 using JetBrains.ReSharper.Psi.Tree;
 using JetBrains.Util;
 using ReSharperPlugin.CollectionUsageFinder.Search;
@@ -48,25 +50,22 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             [NotNull] CollectionSearchTarget target,
             [CanBeNull] INavigationExecutionHost host = null)
         {
-            var searchDocuments = CollectSearchDocuments(sourceFile, document, target).ToArray();
-            var scope = CollectionSearchScopePolicy.GetSearchScope(target.TargetKind);
-            var analyzer = new CSharpCollectionUsageTextAnalyzer();
-            var occurrences = searchDocuments
-                .SelectMany(searchDocument => AnalyzeDocument(searchDocument, analyzer, target))
-                .ToArray();
+            var result = Analyze(solution, sourceFile, document, target);
 
-            if (occurrences.Length == 0)
+            if (result.Items.Count == 0)
             {
                 MessageBox.ShowInfo(
                     "No collection-specific usages found for '" + target.DisplayName + "' in " +
-                    GetScopeDisplayName(scope) + ".");
+                    GetScopeDisplayName(result.Scope) + ".");
                 return;
             }
+
+            var occurrences = CreateOccurrences(result.Items).ToArray();
 
             IOccurrenceBrowserDescriptor CreateDescriptor()
             {
                 return new CollectionUsageSearchDescriptor(
-                    new CollectionUsageSearchRequest(solution, target, scope, occurrences),
+                    new CollectionUsageSearchRequest(solution, target, result.Scope, occurrences),
                     occurrences);
             }
 
@@ -74,6 +73,29 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 host.ShowFindResults(CreateDescriptor);
             else
                 FindResultsBrowserUtil.ShowResults(CreateDescriptor());
+        }
+
+        [NotNull]
+        public static CollectionUsageAnalysisResult Analyze(
+            [NotNull] ISolution solution,
+            [NotNull] IPsiSourceFile sourceFile,
+            [NotNull] IDocument document,
+            [NotNull] CollectionSearchTarget target)
+        {
+            var searchDocuments = TryCollectReferenceSearchDocuments(sourceFile, target, out var seededDocuments)
+                ? seededDocuments
+                : CollectSearchDocuments(sourceFile, document, target).ToArray();
+            var scope = CollectionSearchScopePolicy.GetSearchScope(target.TargetKind);
+            var analyzer = new CSharpCollectionUsageTextAnalyzer();
+            var items = searchDocuments
+                .SelectMany(searchDocument => AnalyzeDocument(searchDocument, analyzer, target))
+                .ToArray();
+
+            return new CollectionUsageAnalysisResult(
+                target.DisplayName,
+                target.CollectionKind.ToString(),
+                scope,
+                items);
         }
 
         private static bool TryCreateSearchContext(
@@ -104,6 +126,150 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             sourceFile = null;
             document = null;
             return false;
+        }
+
+        private static bool TryCollectReferenceSearchDocuments(
+            [NotNull] IPsiSourceFile currentSourceFile,
+            [NotNull] CollectionSearchTarget target,
+            [NotNull] out IReadOnlyList<CollectionUsageSearchDocument> searchDocuments)
+        {
+            searchDocuments = Array.Empty<CollectionUsageSearchDocument>();
+
+            try
+            {
+                var psiServices = target.DeclaredElement.GetPsiServices();
+                var domain = CreateSearchDomain(currentSourceFile, target, psiServices.SearchDomainFactory);
+                var consumer = new ReferenceSearchConsumer();
+
+                psiServices.SingleThreadedFinder.FindReferences<IReference>(
+                    target.DeclaredElement,
+                    domain,
+                    consumer,
+                    new CollectionUsageProgressIndicator(),
+                    true);
+
+                searchDocuments = CreateReferenceSearchDocuments(consumer.References, target).ToArray();
+                if (consumer.References.Count > 0 && searchDocuments.Count == 0)
+                    return false;
+
+                return true;
+            }
+            catch
+            {
+                // Keep the plugin usable if the ReSharper finder rejects a target or SDK behavior changes.
+                return false;
+            }
+        }
+
+        [NotNull]
+        private static ISearchDomain CreateSearchDomain(
+            [NotNull] IPsiSourceFile currentSourceFile,
+            [NotNull] CollectionSearchTarget target,
+            [NotNull] SearchDomainFactory searchDomainFactory)
+        {
+            var scope = CollectionSearchScopePolicy.GetSearchScope(target.TargetKind);
+            if (scope == CollectionSearchScopeKind.CurrentFile)
+                return searchDomainFactory.CreateSearchDomain(currentSourceFile);
+
+            var declaringSourceFile = target.DeclaredElement.GetSourceFiles().FirstOrDefault() ?? currentSourceFile;
+            var declaringProject = declaringSourceFile.GetProject();
+            if (declaringProject != null)
+                return searchDomainFactory.CreateSearchDomain(declaringProject);
+
+            return searchDomainFactory.CreateSearchDomain(currentSourceFile);
+        }
+
+        [NotNull]
+        private static IEnumerable<CollectionUsageSearchDocument> CreateReferenceSearchDocuments(
+            [NotNull] IEnumerable<IReference> references,
+            [NotNull] CollectionSearchTarget target)
+        {
+            var documents = new Dictionary<string, ReferenceSearchDocumentBuilder>();
+            foreach (var reference in references)
+            {
+                if (!TryGetReferenceLocation(reference, target.DisplayName, out var sourceFile, out var document, out var targetOffset))
+                    continue;
+
+                var persistentId = sourceFile.GetPersistentID();
+                if (!documents.TryGetValue(persistentId, out var builder))
+                {
+                    builder = new ReferenceSearchDocumentBuilder(sourceFile, document);
+                    documents.Add(persistentId, builder);
+                }
+
+                builder.TargetOffsets.Add(targetOffset);
+            }
+
+            return documents.Values.Select(static builder => builder.Build());
+        }
+
+        private static bool TryGetReferenceLocation(
+            [NotNull] IReference reference,
+            [NotNull] string targetName,
+            [CanBeNull] out IPsiSourceFile sourceFile,
+            [CanBeNull] out IDocument document,
+            out int targetOffset)
+        {
+            sourceFile = null;
+            document = null;
+            targetOffset = -1;
+
+            if (!reference.IsValid())
+                return false;
+
+            var node = reference.GetTreeNode();
+            if (node == null || !node.IsValid())
+                return false;
+
+            sourceFile = node.GetSourceFile();
+            if (sourceFile == null || !sourceFile.IsValid())
+                return false;
+
+            document = sourceFile.Document;
+            if (document == null)
+                return false;
+
+            var range = reference.GetDocumentRange();
+            if (!range.IsValid())
+                range = node.GetDocumentRange();
+
+            if (!range.IsValid())
+                return false;
+
+            targetOffset = GetTargetNameOffset(document, range, targetName);
+            return targetOffset >= 0;
+        }
+
+        private static int GetTargetNameOffset(
+            [NotNull] IDocument document,
+            DocumentRange referenceRange,
+            [NotNull] string targetName)
+        {
+            var sourceText = document.GetText();
+            var documentLength = sourceText.Length;
+            var startOffset = Math.Max(0, Math.Min(referenceRange.TextRange.StartOffset, documentLength));
+            if (IsTargetAt(sourceText, startOffset, targetName))
+                return startOffset;
+
+            var endOffset = Math.Max(startOffset, Math.Min(referenceRange.TextRange.EndOffset, documentLength));
+            var searchLength = Math.Max(targetName.Length, endOffset - startOffset);
+            searchLength = Math.Min(searchLength + targetName.Length + 8, documentLength - startOffset);
+            var nestedOffset = sourceText.IndexOf(targetName, startOffset, searchLength, StringComparison.Ordinal);
+            return nestedOffset >= 0 ? nestedOffset : -1;
+        }
+
+        private static bool IsTargetAt([NotNull] string sourceText, int offset, [NotNull] string targetName)
+        {
+            if (offset < 0 || offset + targetName.Length > sourceText.Length)
+                return false;
+
+            for (var i = 0; i < targetName.Length; i++)
+            {
+                if (sourceText[offset + i] != targetName[i])
+                    return false;
+            }
+
+            return true;
         }
 
         [NotNull]
@@ -165,7 +331,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
         }
 
         [NotNull]
-        private static IEnumerable<IOccurrence> AnalyzeDocument(
+        private static IEnumerable<CollectionUsageAnalysisItem> AnalyzeDocument(
             [NotNull] CollectionUsageSearchDocument searchDocument,
             [NotNull] CSharpCollectionUsageTextAnalyzer analyzer,
             [NotNull] CollectionSearchTarget target)
@@ -173,13 +339,31 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             var targetName = target.DisplayName;
             var sourceText = searchDocument.Document.GetText();
             if (sourceText.IndexOf(targetName, StringComparison.Ordinal) < 0)
-                return Array.Empty<IOccurrence>();
+                return Array.Empty<CollectionUsageAnalysisItem>();
 
             var analysisOccurrences = analyzer.Analyze(
                 sourceText,
                 targetName,
-                targetOffset => IsTargetReferenceAllowed(searchDocument, target, targetOffset));
-            return CreateOccurrences(searchDocument.SourceFile, searchDocument.Document, analysisOccurrences);
+                targetOffset => IsTargetReferenceAllowedForDocument(searchDocument, target, targetOffset));
+            return analysisOccurrences.Select(
+                occurrence => new CollectionUsageAnalysisItem(
+                    searchDocument.SourceFile,
+                    searchDocument.Document,
+                    GetSourceFilePath(searchDocument.SourceFile),
+                    sourceText,
+                    occurrence));
+        }
+
+        private static bool IsTargetReferenceAllowedForDocument(
+            [NotNull] CollectionUsageSearchDocument searchDocument,
+            [NotNull] CollectionSearchTarget target,
+            int targetOffset)
+        {
+            if (!searchDocument.IsTargetOffsetAllowed(targetOffset))
+                return false;
+
+            return searchDocument.HasExplicitTargetOffsets ||
+                IsTargetReferenceAllowed(searchDocument, target, targetOffset);
         }
 
         private static bool IsTargetReferenceAllowed(
@@ -233,16 +417,16 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
         [NotNull]
         private static IEnumerable<IOccurrence> CreateOccurrences(
-            [NotNull] IPsiSourceFile sourceFile,
-            [NotNull] IDocument document,
-            [NotNull] IEnumerable<CollectionUsageOccurrence> analysisOccurrences)
+            [NotNull] IEnumerable<CollectionUsageAnalysisItem> analysisItems)
         {
-            var documentLength = document.GetTextLength();
-            if (documentLength <= 0)
-                yield break;
-
-            foreach (var occurrence in analysisOccurrences)
+            foreach (var item in analysisItems)
             {
+                var document = item.Document;
+                var occurrence = item.Occurrence;
+                var documentLength = document.GetTextLength();
+                if (documentLength <= 0)
+                    continue;
+
                 if (occurrence.StartOffset < 0 || occurrence.StartOffset >= documentLength)
                     continue;
 
@@ -251,7 +435,20 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                     document,
                     TextRange.FromLength(occurrence.StartOffset, length));
 
-                yield return new CollectionUsageRangeOccurrence(sourceFile, range, occurrence);
+                yield return new CollectionUsageRangeOccurrence(item.SourceFile, range, occurrence);
+            }
+        }
+
+        [NotNull]
+        private static string GetSourceFilePath([NotNull] IPsiSourceFile sourceFile)
+        {
+            try
+            {
+                return sourceFile.GetLocation().FullPath;
+            }
+            catch
+            {
+                return sourceFile.DisplayName;
             }
         }
 
@@ -270,10 +467,18 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
         private sealed class CollectionUsageSearchDocument
         {
-            public CollectionUsageSearchDocument([NotNull] IPsiSourceFile sourceFile, [NotNull] IDocument document)
+            private readonly HashSet<int> allowedTargetOffsets;
+
+            public CollectionUsageSearchDocument(
+                [NotNull] IPsiSourceFile sourceFile,
+                [NotNull] IDocument document,
+                [CanBeNull] IEnumerable<int> allowedTargetOffsets = null)
             {
                 SourceFile = sourceFile;
                 Document = document;
+                this.allowedTargetOffsets = allowedTargetOffsets != null
+                    ? new HashSet<int>(allowedTargetOffsets)
+                    : null;
             }
 
             [NotNull]
@@ -281,6 +486,194 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
             [NotNull]
             public IDocument Document { get; }
+
+            public bool HasExplicitTargetOffsets => allowedTargetOffsets != null;
+
+            public bool IsTargetOffsetAllowed(int targetOffset)
+            {
+                return allowedTargetOffsets == null || allowedTargetOffsets.Contains(targetOffset);
+            }
+        }
+
+        private sealed class ReferenceSearchDocumentBuilder
+        {
+            public ReferenceSearchDocumentBuilder([NotNull] IPsiSourceFile sourceFile, [NotNull] IDocument document)
+            {
+                SourceFile = sourceFile;
+                Document = document;
+                TargetOffsets = new HashSet<int>();
+            }
+
+            [NotNull]
+            private IPsiSourceFile SourceFile { get; }
+
+            [NotNull]
+            private IDocument Document { get; }
+
+            [NotNull]
+            public HashSet<int> TargetOffsets { get; }
+
+            [NotNull]
+            public CollectionUsageSearchDocument Build()
+            {
+                return new CollectionUsageSearchDocument(SourceFile, Document, TargetOffsets);
+            }
+        }
+
+        private sealed class ReferenceSearchConsumer : IFindResultConsumer<IReference>
+        {
+            private readonly List<IReference> references = new List<IReference>();
+
+            [NotNull]
+            public IReadOnlyList<IReference> References => references;
+
+            public IReference Build(FindResult result)
+            {
+                var referenceResult = result as IFindResultReference;
+                var reference = referenceResult?.Reference;
+                return reference != null && reference.IsValid() ? reference : null;
+            }
+
+            public FindExecution Merge(IReference data)
+            {
+                if (data != null)
+                    references.Add(data);
+
+                return FindExecution.Continue;
+            }
+        }
+
+        private sealed class CollectionUsageProgressIndicator : IProgressIndicator
+        {
+            public void Dispose()
+            {
+            }
+
+            public string TaskName { get; set; }
+
+            public string CurrentItemText { get; set; }
+
+            public bool IsCanceled => false;
+
+            public void Advance(double amount)
+            {
+            }
+
+            public void Start(int count)
+            {
+            }
+
+            public void Stop()
+            {
+            }
+        }
+
+        public sealed class CollectionUsageAnalysisResult
+        {
+            public CollectionUsageAnalysisResult(
+                [NotNull] string targetName,
+                [NotNull] string collectionKind,
+                CollectionSearchScopeKind scope,
+                [NotNull] IReadOnlyList<CollectionUsageAnalysisItem> items)
+            {
+                TargetName = targetName;
+                CollectionKind = collectionKind;
+                Scope = scope;
+                Items = items;
+            }
+
+            [NotNull]
+            public string TargetName { get; }
+
+            [NotNull]
+            public string CollectionKind { get; }
+
+            public CollectionSearchScopeKind Scope { get; }
+
+            [NotNull]
+            public IReadOnlyList<CollectionUsageAnalysisItem> Items { get; }
+        }
+
+        public sealed class CollectionUsageAnalysisItem
+        {
+            public CollectionUsageAnalysisItem(
+                [NotNull] IPsiSourceFile sourceFile,
+                [NotNull] IDocument document,
+                [NotNull] string filePath,
+                [NotNull] string sourceText,
+                [NotNull] CollectionUsageOccurrence occurrence)
+            {
+                SourceFile = sourceFile;
+                Document = document;
+                FilePath = filePath;
+                Occurrence = occurrence;
+                Preview = CollectionUsagePreviewBuilder.Build(
+                    sourceText,
+                    occurrence.StartOffset,
+                    occurrence.Length,
+                    4);
+            }
+
+            [NotNull]
+            internal IPsiSourceFile SourceFile { get; }
+
+            [NotNull]
+            internal IDocument Document { get; }
+
+            [NotNull]
+            internal CollectionUsageOccurrence Occurrence { get; }
+
+            [NotNull]
+            private CollectionUsagePreview Preview { get; }
+
+            [NotNull]
+            public string FilePath { get; }
+
+            public int StartOffset => Occurrence.StartOffset;
+
+            public int Length => Occurrence.Length;
+
+            public int Line => Occurrence.Line;
+
+            public int Column => Occurrence.Column;
+
+            [NotNull]
+            public string Kind => Occurrence.Kind.ToString();
+
+            [NotNull]
+            public string KindDisplayName => GetCategoryDisplayName(Occurrence.Kind);
+
+            [NotNull]
+            public string Text => Occurrence.Text;
+
+            [NotNull]
+            public string PreviewText => Preview.Text;
+
+            public int PreviewStartLine => Preview.StartLine;
+
+            public int PreviewHighlightStart => Preview.HighlightStart;
+
+            public int PreviewHighlightLength => Preview.HighlightLength;
+        }
+
+        [NotNull]
+        private static string GetCategoryDisplayName(CollectionUsageKind kind)
+        {
+            switch (kind)
+            {
+                case CollectionUsageKind.CollectionStructureUsage:
+                    return "원소 추가/삭제";
+
+                case CollectionUsageKind.ElementWrite:
+                    return "내용물 수정";
+
+                case CollectionUsageKind.ElementAlias:
+                case CollectionUsageKind.ElementEscape:
+                    return "레퍼런스 넘기기";
+
+                default:
+                    return "컬렉션 사용";
+            }
         }
 
         private sealed class CollectionUsageSearchRequest : SearchRequest

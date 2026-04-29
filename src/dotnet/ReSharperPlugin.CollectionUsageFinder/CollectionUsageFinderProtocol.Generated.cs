@@ -33,10 +33,10 @@ using JetBrains.Rd.Text;
 
 namespace JetBrains.Rider.Model
 {
-  
-  
+
+
   /// <summary>
-  /// <p>Generated from: CollectionUsageFinderProtocol.kt:9</p>
+  /// <p>Generated from: CollectionUsageFinderProtocol.kt:10</p>
   /// </summary>
   [JetBrains.Application.ShellComponent(Application.Parts.Instantiation.DemandAnyThreadSafe)]
   public class CollectionUsageFinderProtocol : RdExtBase
@@ -44,17 +44,17 @@ namespace JetBrains.Rider.Model
     //fields
     //public fields
     [NotNull] public RdCall<CollectionUsageFindRequest, CollectionUsageFindResponse> FindCollectionUsages => _FindCollectionUsages;
-    
+
     //private fields
     [NotNull] private readonly RdCall<CollectionUsageFindRequest, CollectionUsageFindResponse> _FindCollectionUsages;
-    
+
     //primary constructor
     private CollectionUsageFinderProtocol(
       [NotNull] RdCall<CollectionUsageFindRequest, CollectionUsageFindResponse> findCollectionUsages
     )
     {
       if (findCollectionUsages == null) throw new ArgumentNullException("findCollectionUsages");
-      
+
       _FindCollectionUsages = findCollectionUsages;
       BindableChildren.Add(new KeyValuePair<string, object>("findCollectionUsages", _FindCollectionUsages));
     }
@@ -65,26 +65,26 @@ namespace JetBrains.Rider.Model
     ) {}
     //deconstruct trait
     //statics
-    
-    
-    
-    protected override long SerializationHash => -6506649137475799515L;
-    
+
+
+
+    protected override long SerializationHash => 3567922973589202405L;
+
     protected override Action<ISerializers> Register => RegisterDeclaredTypesSerializers;
     public static void RegisterDeclaredTypesSerializers(ISerializers serializers)
     {
-      
+
       serializers.RegisterToplevelOnce(typeof(IdeRoot), IdeRoot.RegisterDeclaredTypesSerializers);
     }
-    
+
     public CollectionUsageFinderProtocol(Lifetime lifetime, IProtocol protocol) : this()
     {
       Identify(protocol.Identities, RdId.Root.Mix("CollectionUsageFinderProtocol"));
       this.BindTopLevel(lifetime, protocol, "CollectionUsageFinderProtocol");
     }
-    
+
     //constants
-    
+
     //custom body
     //methods
     //equals trait
@@ -106,10 +106,10 @@ namespace JetBrains.Rider.Model
       return printer.ToString();
     }
   }
-  
-  
+
+
   /// <summary>
-  /// <p>Generated from: CollectionUsageFinderProtocol.kt:10</p>
+  /// <p>Generated from: CollectionUsageFinderProtocol.kt:11</p>
   /// </summary>
   public sealed class CollectionUsageFindRequest : IPrintable, IEquatable<CollectionUsageFindRequest>
   {
@@ -117,7 +117,7 @@ namespace JetBrains.Rider.Model
     //public fields
     [NotNull] public string FilePath {get; private set;}
     public int CaretOffset {get; private set;}
-    
+
     //private fields
     //primary constructor
     public CollectionUsageFindRequest(
@@ -126,7 +126,7 @@ namespace JetBrains.Rider.Model
     )
     {
       if (filePath == null) throw new ArgumentNullException("filePath");
-      
+
       FilePath = filePath;
       CaretOffset = caretOffset;
     }
@@ -138,23 +138,23 @@ namespace JetBrains.Rider.Model
       caretOffset = CaretOffset;
     }
     //statics
-    
-    public static CtxReadDelegate<CollectionUsageFindRequest> Read = (ctx, reader) => 
+
+    public static CtxReadDelegate<CollectionUsageFindRequest> Read = (ctx, reader) =>
     {
       var filePath = reader.ReadString();
       var caretOffset = reader.ReadInt();
       var _result = new CollectionUsageFindRequest(filePath, caretOffset);
       return _result;
     };
-    
-    public static CtxWriteDelegate<CollectionUsageFindRequest> Write = (ctx, writer, value) => 
+
+    public static CtxWriteDelegate<CollectionUsageFindRequest> Write = (ctx, writer, value) =>
     {
       writer.Write(value.FilePath);
       writer.Write(value.CaretOffset);
     };
-    
+
     //constants
-    
+
     //custom body
     //methods
     //equals trait
@@ -199,10 +199,10 @@ namespace JetBrains.Rider.Model
       return printer.ToString();
     }
   }
-  
-  
+
+
   /// <summary>
-  /// <p>Generated from: CollectionUsageFinderProtocol.kt:15</p>
+  /// <p>Generated from: CollectionUsageFinderProtocol.kt:31</p>
   /// </summary>
   public sealed class CollectionUsageFindResponse : IPrintable, IEquatable<CollectionUsageFindResponse>
   {
@@ -210,44 +210,74 @@ namespace JetBrains.Rider.Model
     //public fields
     public bool Success {get; private set;}
     [NotNull] public string Message {get; private set;}
-    
+    [NotNull] public string TargetName {get; private set;}
+    [NotNull] public string CollectionKind {get; private set;}
+    [NotNull] public string Scope {get; private set;}
+    [NotNull] public List<CollectionUsageResultItem> Items {get; private set;}
+
     //private fields
     //primary constructor
     public CollectionUsageFindResponse(
       bool success,
-      [NotNull] string message
+      [NotNull] string message,
+      [NotNull] string targetName,
+      [NotNull] string collectionKind,
+      [NotNull] string scope,
+      [NotNull] List<CollectionUsageResultItem> items
     )
     {
       if (message == null) throw new ArgumentNullException("message");
-      
+      if (targetName == null) throw new ArgumentNullException("targetName");
+      if (collectionKind == null) throw new ArgumentNullException("collectionKind");
+      if (scope == null) throw new ArgumentNullException("scope");
+      if (items == null) throw new ArgumentNullException("items");
+
       Success = success;
       Message = message;
+      TargetName = targetName;
+      CollectionKind = collectionKind;
+      Scope = scope;
+      Items = items;
     }
     //secondary constructor
     //deconstruct trait
-    public void Deconstruct(out bool success, [NotNull] out string message)
+    public void Deconstruct(out bool success, [NotNull] out string message, [NotNull] out string targetName, [NotNull] out string collectionKind, [NotNull] out string scope, [NotNull] out List<CollectionUsageResultItem> items)
     {
       success = Success;
       message = Message;
+      targetName = TargetName;
+      collectionKind = CollectionKind;
+      scope = Scope;
+      items = Items;
     }
     //statics
-    
-    public static CtxReadDelegate<CollectionUsageFindResponse> Read = (ctx, reader) => 
+
+    public static CtxReadDelegate<CollectionUsageFindResponse> Read = (ctx, reader) =>
     {
       var success = reader.ReadBool();
       var message = reader.ReadString();
-      var _result = new CollectionUsageFindResponse(success, message);
+      var targetName = reader.ReadString();
+      var collectionKind = reader.ReadString();
+      var scope = reader.ReadString();
+      var items = ReadCollectionUsageResultItemList(ctx, reader);
+      var _result = new CollectionUsageFindResponse(success, message, targetName, collectionKind, scope, items);
       return _result;
     };
-    
-    public static CtxWriteDelegate<CollectionUsageFindResponse> Write = (ctx, writer, value) => 
+    public static CtxReadDelegate<List<CollectionUsageResultItem>> ReadCollectionUsageResultItemList = CollectionUsageResultItem.Read.List();
+
+    public static CtxWriteDelegate<CollectionUsageFindResponse> Write = (ctx, writer, value) =>
     {
       writer.Write(value.Success);
       writer.Write(value.Message);
+      writer.Write(value.TargetName);
+      writer.Write(value.CollectionKind);
+      writer.Write(value.Scope);
+      WriteCollectionUsageResultItemList(ctx, writer, value.Items);
     };
-    
+    public static  CtxWriteDelegate<List<CollectionUsageResultItem>> WriteCollectionUsageResultItemList = CollectionUsageResultItem.Write.List();
+
     //constants
-    
+
     //custom body
     //methods
     //equals trait
@@ -262,7 +292,7 @@ namespace JetBrains.Rider.Model
     {
       if (ReferenceEquals(null, other)) return false;
       if (ReferenceEquals(this, other)) return true;
-      return Success == other.Success && Message == other.Message;
+      return Success == other.Success && Message == other.Message && TargetName == other.TargetName && CollectionKind == other.CollectionKind && Scope == other.Scope && Items.SequenceEqual(other.Items);
     }
     //hash code trait
     public override int GetHashCode()
@@ -271,6 +301,10 @@ namespace JetBrains.Rider.Model
         var hash = 0;
         hash = hash * 31 + Success.GetHashCode();
         hash = hash * 31 + Message.GetHashCode();
+        hash = hash * 31 + TargetName.GetHashCode();
+        hash = hash * 31 + CollectionKind.GetHashCode();
+        hash = hash * 31 + Scope.GetHashCode();
+        hash = hash * 31 + Items.ContentHashCode();
         return hash;
       }
     }
@@ -281,6 +315,187 @@ namespace JetBrains.Rider.Model
       using (printer.IndentCookie()) {
         printer.Print("success = "); Success.PrintEx(printer); printer.Println();
         printer.Print("message = "); Message.PrintEx(printer); printer.Println();
+        printer.Print("targetName = "); TargetName.PrintEx(printer); printer.Println();
+        printer.Print("collectionKind = "); CollectionKind.PrintEx(printer); printer.Println();
+        printer.Print("scope = "); Scope.PrintEx(printer); printer.Println();
+        printer.Print("items = "); Items.PrintEx(printer); printer.Println();
+      }
+      printer.Print(")");
+    }
+    //toString
+    public override string ToString()
+    {
+      var printer = new SingleLinePrettyPrinter();
+      Print(printer);
+      return printer.ToString();
+    }
+  }
+
+
+  /// <summary>
+  /// <p>Generated from: CollectionUsageFinderProtocol.kt:16</p>
+  /// </summary>
+  public sealed class CollectionUsageResultItem : IPrintable, IEquatable<CollectionUsageResultItem>
+  {
+    //fields
+    //public fields
+    [NotNull] public string FilePath {get; private set;}
+    public int StartOffset {get; private set;}
+    public int Length {get; private set;}
+    public int Line {get; private set;}
+    public int Column {get; private set;}
+    [NotNull] public string Kind {get; private set;}
+    [NotNull] public string KindDisplayName {get; private set;}
+    [NotNull] public string Text {get; private set;}
+    [NotNull] public string PreviewText {get; private set;}
+    public int PreviewStartLine {get; private set;}
+    public int PreviewHighlightStart {get; private set;}
+    public int PreviewHighlightLength {get; private set;}
+
+    //private fields
+    //primary constructor
+    public CollectionUsageResultItem(
+      [NotNull] string filePath,
+      int startOffset,
+      int length,
+      int line,
+      int column,
+      [NotNull] string kind,
+      [NotNull] string kindDisplayName,
+      [NotNull] string text,
+      [NotNull] string previewText,
+      int previewStartLine,
+      int previewHighlightStart,
+      int previewHighlightLength
+    )
+    {
+      if (filePath == null) throw new ArgumentNullException("filePath");
+      if (kind == null) throw new ArgumentNullException("kind");
+      if (kindDisplayName == null) throw new ArgumentNullException("kindDisplayName");
+      if (text == null) throw new ArgumentNullException("text");
+      if (previewText == null) throw new ArgumentNullException("previewText");
+
+      FilePath = filePath;
+      StartOffset = startOffset;
+      Length = length;
+      Line = line;
+      Column = column;
+      Kind = kind;
+      KindDisplayName = kindDisplayName;
+      Text = text;
+      PreviewText = previewText;
+      PreviewStartLine = previewStartLine;
+      PreviewHighlightStart = previewHighlightStart;
+      PreviewHighlightLength = previewHighlightLength;
+    }
+    //secondary constructor
+    //deconstruct trait
+    public void Deconstruct([NotNull] out string filePath, out int startOffset, out int length, out int line, out int column, [NotNull] out string kind, [NotNull] out string kindDisplayName, [NotNull] out string text, [NotNull] out string previewText, out int previewStartLine, out int previewHighlightStart, out int previewHighlightLength)
+    {
+      filePath = FilePath;
+      startOffset = StartOffset;
+      length = Length;
+      line = Line;
+      column = Column;
+      kind = Kind;
+      kindDisplayName = KindDisplayName;
+      text = Text;
+      previewText = PreviewText;
+      previewStartLine = PreviewStartLine;
+      previewHighlightStart = PreviewHighlightStart;
+      previewHighlightLength = PreviewHighlightLength;
+    }
+    //statics
+
+    public static CtxReadDelegate<CollectionUsageResultItem> Read = (ctx, reader) =>
+    {
+      var filePath = reader.ReadString();
+      var startOffset = reader.ReadInt();
+      var length = reader.ReadInt();
+      var line = reader.ReadInt();
+      var column = reader.ReadInt();
+      var kind = reader.ReadString();
+      var kindDisplayName = reader.ReadString();
+      var text = reader.ReadString();
+      var previewText = reader.ReadString();
+      var previewStartLine = reader.ReadInt();
+      var previewHighlightStart = reader.ReadInt();
+      var previewHighlightLength = reader.ReadInt();
+      var _result = new CollectionUsageResultItem(filePath, startOffset, length, line, column, kind, kindDisplayName, text, previewText, previewStartLine, previewHighlightStart, previewHighlightLength);
+      return _result;
+    };
+
+    public static CtxWriteDelegate<CollectionUsageResultItem> Write = (ctx, writer, value) =>
+    {
+      writer.Write(value.FilePath);
+      writer.Write(value.StartOffset);
+      writer.Write(value.Length);
+      writer.Write(value.Line);
+      writer.Write(value.Column);
+      writer.Write(value.Kind);
+      writer.Write(value.KindDisplayName);
+      writer.Write(value.Text);
+      writer.Write(value.PreviewText);
+      writer.Write(value.PreviewStartLine);
+      writer.Write(value.PreviewHighlightStart);
+      writer.Write(value.PreviewHighlightLength);
+    };
+
+    //constants
+
+    //custom body
+    //methods
+    //equals trait
+    public override bool Equals(object obj)
+    {
+      if (ReferenceEquals(null, obj)) return false;
+      if (ReferenceEquals(this, obj)) return true;
+      if (obj.GetType() != GetType()) return false;
+      return Equals((CollectionUsageResultItem) obj);
+    }
+    public bool Equals(CollectionUsageResultItem other)
+    {
+      if (ReferenceEquals(null, other)) return false;
+      if (ReferenceEquals(this, other)) return true;
+      return FilePath == other.FilePath && StartOffset == other.StartOffset && Length == other.Length && Line == other.Line && Column == other.Column && Kind == other.Kind && KindDisplayName == other.KindDisplayName && Text == other.Text && PreviewText == other.PreviewText && PreviewStartLine == other.PreviewStartLine && PreviewHighlightStart == other.PreviewHighlightStart && PreviewHighlightLength == other.PreviewHighlightLength;
+    }
+    //hash code trait
+    public override int GetHashCode()
+    {
+      unchecked {
+        var hash = 0;
+        hash = hash * 31 + FilePath.GetHashCode();
+        hash = hash * 31 + StartOffset.GetHashCode();
+        hash = hash * 31 + Length.GetHashCode();
+        hash = hash * 31 + Line.GetHashCode();
+        hash = hash * 31 + Column.GetHashCode();
+        hash = hash * 31 + Kind.GetHashCode();
+        hash = hash * 31 + KindDisplayName.GetHashCode();
+        hash = hash * 31 + Text.GetHashCode();
+        hash = hash * 31 + PreviewText.GetHashCode();
+        hash = hash * 31 + PreviewStartLine.GetHashCode();
+        hash = hash * 31 + PreviewHighlightStart.GetHashCode();
+        hash = hash * 31 + PreviewHighlightLength.GetHashCode();
+        return hash;
+      }
+    }
+    //pretty print
+    public void Print(PrettyPrinter printer)
+    {
+      printer.Println("CollectionUsageResultItem (");
+      using (printer.IndentCookie()) {
+        printer.Print("filePath = "); FilePath.PrintEx(printer); printer.Println();
+        printer.Print("startOffset = "); StartOffset.PrintEx(printer); printer.Println();
+        printer.Print("length = "); Length.PrintEx(printer); printer.Println();
+        printer.Print("line = "); Line.PrintEx(printer); printer.Println();
+        printer.Print("column = "); Column.PrintEx(printer); printer.Println();
+        printer.Print("kind = "); Kind.PrintEx(printer); printer.Println();
+        printer.Print("kindDisplayName = "); KindDisplayName.PrintEx(printer); printer.Println();
+        printer.Print("text = "); Text.PrintEx(printer); printer.Println();
+        printer.Print("previewText = "); PreviewText.PrintEx(printer); printer.Println();
+        printer.Print("previewStartLine = "); PreviewStartLine.PrintEx(printer); printer.Println();
+        printer.Print("previewHighlightStart = "); PreviewHighlightStart.PrintEx(printer); printer.Println();
+        printer.Print("previewHighlightLength = "); PreviewHighlightLength.PrintEx(printer); printer.Println();
       }
       printer.Print(")");
     }

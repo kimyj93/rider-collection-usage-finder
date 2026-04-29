@@ -36,6 +36,21 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             "TryPop"
         };
 
+        private const string CollectionMemberAccessPattern = @"(?:\?\.\s*|\.\s*)";
+        private const string CollectionIndexerPattern = @"(?:\?\s*)?\[(?:[^\[\]\r\n]|\[[^\]\r\n]*\])+\]";
+        private const string MutationOperatorPattern = @"(?:\+\+|--|\?\?=|(?:>>>|<<|>>|[+\-*/%&|^])=|=(?!=|>))";
+        private const string SingleCharacterCompoundAssignmentOperators = "+-*/%&|^";
+
+        private static readonly string[] MultiCharacterMutationOperators =
+        {
+            "++",
+            "--",
+            "??=",
+            ">>>=",
+            "<<=",
+            ">>="
+        };
+
         [NotNull]
         public IReadOnlyList<CollectionUsageOccurrence> Analyze([NotNull] string sourceText, [NotNull] string targetName)
         {
@@ -57,6 +72,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
 
             CollectStructuralUsages(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
             CollectDirectElementWrites(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
+            CollectBalancedIndexerUsages(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
             var aliases = CollectAliases(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
             CollectAliasElementWrites(sourceText, sanitizedText, aliases, occurrences);
             CollectEscapes(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
@@ -79,7 +95,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             AddTargetMatches(
                 sourceText,
                 sanitizedText,
-                $@"(?<target>\b{targetPattern})\s*\.\s*(?:{structuralUsageMembers})\s*\(",
+                $@"(?<target>\b{targetPattern})\s*{CollectionMemberAccessPattern}(?:{structuralUsageMembers})\s*\(",
                 CollectionUsageKind.CollectionStructureUsage,
                 isTargetReferenceAllowed,
                 occurrences);
@@ -87,10 +103,54 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             AddTargetMatches(
                 sourceText,
                 sanitizedText,
-                $@"(?<target>\b{targetPattern})\s*\[[^\]\r\n]+\]\s*(?:[+\-*/%&|^]?=|\+\+|--)",
+                $@"(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}\s*{MutationOperatorPattern}",
                 CollectionUsageKind.CollectionStructureUsage,
                 isTargetReferenceAllowed,
                 occurrences);
+        }
+
+        private static void CollectBalancedIndexerUsages(
+            string sourceText,
+            string sanitizedText,
+            string targetPattern,
+            Func<int, bool> isTargetReferenceAllowed,
+            ICollection<CollectionUsageOccurrence> occurrences)
+        {
+            foreach (Match match in Regex.Matches(sanitizedText, $@"\b{targetPattern}\b", RegexOptions.Multiline))
+            {
+                if (!isTargetReferenceAllowed(match.Index))
+                    continue;
+
+                var indexerOpen = TryGetIndexerOpen(sanitizedText, match.Index + match.Length);
+                if (indexerOpen < 0)
+                    continue;
+
+                var indexerClose = TryFindMatchingBracket(sanitizedText, indexerOpen);
+                if (indexerClose < 0)
+                    continue;
+
+                var afterIndexer = SkipWhitespace(sanitizedText, indexerClose + 1);
+                if (TryGetMutationOperatorLength(sanitizedText, afterIndexer, out var indexerMutationLength))
+                {
+                    AddOccurrence(
+                        sourceText,
+                        match.Index,
+                        afterIndexer + indexerMutationLength - match.Index,
+                        CollectionUsageKind.CollectionStructureUsage,
+                        occurrences);
+                    continue;
+                }
+
+                if (TryGetMemberMutationEnd(sanitizedText, afterIndexer, out var memberMutationEnd))
+                {
+                    AddOccurrence(
+                        sourceText,
+                        match.Index,
+                        memberMutationEnd - match.Index,
+                        CollectionUsageKind.ElementWrite,
+                        occurrences);
+                }
+            }
         }
 
         private static void CollectDirectElementWrites(
@@ -103,30 +163,33 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             AddTargetMatches(
                 sourceText,
                 sanitizedText,
-                $@"(?<target>\b{targetPattern})\s*\[[^\]\r\n]+\]\s*\.\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*(?:[+\-*/%&|^]?=|\+\+|--)",
+                $@"(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}\s*\.\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*{MutationOperatorPattern}",
                 CollectionUsageKind.ElementWrite,
                 isTargetReferenceAllowed,
                 occurrences);
         }
 
-        private static IReadOnlyCollection<string> CollectAliases(
+        private static IReadOnlyCollection<AliasScope> CollectAliases(
             string sourceText,
             string sanitizedText,
             string targetPattern,
             Func<int, bool> isTargetReferenceAllowed,
             ICollection<CollectionUsageOccurrence> occurrences)
         {
-            var aliases = new HashSet<string>(StringComparer.Ordinal);
+            var aliases = new List<AliasScope>();
 
             foreach (Match match in Regex.Matches(
                          sanitizedText,
-                         $@"\b(?:var|[A-Za-z_]\w*(?:\s*<[^;\r\n=]+>)?(?:\s*\[\])?)\s+([A-Za-z_]\w*)\s*=\s*(?<target>{targetPattern})\s*\[[^\]\r\n]+\]\s*;",
+                         $@"\b(?:var|[A-Za-z_]\w*(?:\s*<[^;\r\n=]+>)?(?:\s*\[\])?)\s+([A-Za-z_]\w*)\s*=\s*(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;",
                          RegexOptions.Multiline))
             {
                 if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
                     continue;
 
-                aliases.Add(match.Groups[1].Value);
+                aliases.Add(new AliasScope(
+                    match.Groups[1].Value,
+                    match.Index + match.Length,
+                    GetContainingBlockEnd(sanitizedText, match.Index)));
                 AddOccurrence(sourceText, match, CollectionUsageKind.ElementAlias, occurrences);
             }
 
@@ -138,7 +201,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
                     continue;
 
-                aliases.Add(match.Groups[1].Value);
+                aliases.Add(CreateForeachAliasScope(sanitizedText, match.Groups[1].Value, match.Index, match.Index + match.Length));
                 AddOccurrence(sourceText, match, CollectionUsageKind.ElementAlias, occurrences);
             }
 
@@ -148,17 +211,21 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         private static void CollectAliasElementWrites(
             string sourceText,
             string sanitizedText,
-            IEnumerable<string> aliases,
+            IEnumerable<AliasScope> aliases,
             ICollection<CollectionUsageOccurrence> occurrences)
         {
             foreach (var alias in aliases)
             {
-                AddMatches(
-                    sourceText,
-                    sanitizedText,
-                    $@"\b{Regex.Escape(alias)}\s*\.\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*(?:[+\-*/%&|^]?=|\+\+|--)",
-                    CollectionUsageKind.ElementWrite,
-                    occurrences);
+                foreach (Match match in Regex.Matches(
+                             sanitizedText,
+                             $@"\b{Regex.Escape(alias.Name)}\s*\.\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*{MutationOperatorPattern}",
+                             RegexOptions.Multiline))
+                {
+                    if (match.Index < alias.StartOffset || match.Index >= alias.EndOffset)
+                        continue;
+
+                    AddOccurrence(sourceText, match, CollectionUsageKind.ElementWrite, occurrences);
+                }
             }
         }
 
@@ -172,7 +239,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             AddTargetMatches(
                 sourceText,
                 sanitizedText,
-                $@"\breturn\s+(?<target>{targetPattern})\s*\[[^\]\r\n]+\]\s*;",
+                $@"\breturn\s+(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;",
                 CollectionUsageKind.ElementEscape,
                 isTargetReferenceAllowed,
                 occurrences);
@@ -180,7 +247,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             AddTargetMatches(
                 sourceText,
                 sanitizedText,
-                $@"(?:^|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>{targetPattern})\s*\[[^\]\r\n]+\]\s*;",
+                $@"(?:^|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;",
                 CollectionUsageKind.ElementEscape,
                 isTargetReferenceAllowed,
                 occurrences);
@@ -188,7 +255,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             AddTargetMatches(
                 sourceText,
                 sanitizedText,
-                $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*\([^;\r\n]*(?<target>\b{targetPattern})\s*\[[^\]\r\n]+\](?!\s*\.)[^;\r\n]*\)",
+                $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*\([^;\r\n]*(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}(?!\s*\.)[^;\r\n]*\)",
                 CollectionUsageKind.ElementEscape,
                 isTargetReferenceAllowed,
                 occurrences);
@@ -207,7 +274,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
                     continue;
 
-                AddOccurrence(sourceText, match, kind, occurrences);
+                AddTargetOccurrence(sourceText, match, kind, occurrences);
             }
         }
 
@@ -215,6 +282,24 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         {
             var targetGroup = match.Groups["target"];
             return targetGroup.Success && isTargetReferenceAllowed(targetGroup.Index);
+        }
+
+        private static void AddTargetOccurrence(
+            string sourceText,
+            Match match,
+            CollectionUsageKind kind,
+            ICollection<CollectionUsageOccurrence> occurrences)
+        {
+            var targetGroup = match.Groups["target"];
+            if (!targetGroup.Success)
+                return;
+
+            AddOccurrence(
+                sourceText,
+                targetGroup.Index,
+                match.Index + match.Length - targetGroup.Index,
+                kind,
+                occurrences);
         }
 
         private static void AddMatches(
@@ -234,14 +319,225 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             CollectionUsageKind kind,
             ICollection<CollectionUsageOccurrence> occurrences)
         {
-            var location = GetLineColumn(sourceText, match.Index);
+            AddOccurrence(sourceText, match.Index, match.Length, kind, occurrences);
+        }
+
+        private static void AddOccurrence(
+            string sourceText,
+            int startOffset,
+            int length,
+            CollectionUsageKind kind,
+            ICollection<CollectionUsageOccurrence> occurrences)
+        {
+            var location = GetLineColumn(sourceText, startOffset);
             occurrences.Add(new CollectionUsageOccurrence(
                 kind,
-                match.Index,
-                match.Length,
+                startOffset,
+                Math.Max(1, Math.Min(length, sourceText.Length - startOffset)),
                 location.Line,
                 location.Column,
-                GetLineText(sourceText, match.Index)));
+                GetLineText(sourceText, startOffset)));
+        }
+
+        private static int TryGetIndexerOpen(string text, int offset)
+        {
+            var current = SkipWhitespace(text, offset);
+            if (current < text.Length && text[current] == '?')
+                current = SkipWhitespace(text, current + 1);
+
+            return current < text.Length && text[current] == '[' ? current : -1;
+        }
+
+        private static int TryFindMatchingBracket(string text, int openBracketOffset)
+        {
+            var depth = 0;
+            for (var i = openBracketOffset; i < text.Length; i++)
+            {
+                if (text[i] == '[')
+                {
+                    depth++;
+                }
+                else if (text[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static AliasScope CreateForeachAliasScope(string text, string name, int matchStart, int matchEnd)
+        {
+            var bodyStart = SkipWhitespace(text, matchEnd);
+            if (bodyStart < text.Length && text[bodyStart] == '{')
+            {
+                var bodyEnd = TryFindMatchingBrace(text, bodyStart);
+                return new AliasScope(name, bodyStart + 1, bodyEnd >= 0 ? bodyEnd : text.Length);
+            }
+
+            var statementEnd = FindStatementEnd(text, bodyStart);
+            return new AliasScope(name, matchEnd, statementEnd >= 0 ? statementEnd : GetContainingBlockEnd(text, matchStart));
+        }
+
+        private static int GetContainingBlockEnd(string text, int offset)
+        {
+            var openBraces = new Stack<int>();
+            for (var i = 0; i < offset && i < text.Length; i++)
+            {
+                if (text[i] == '{')
+                {
+                    openBraces.Push(i);
+                }
+                else if (text[i] == '}' && openBraces.Count > 0)
+                {
+                    openBraces.Pop();
+                }
+            }
+
+            if (openBraces.Count == 0)
+                return text.Length;
+
+            var blockEnd = TryFindMatchingBrace(text, openBraces.Peek());
+            return blockEnd >= 0 ? blockEnd : text.Length;
+        }
+
+        private static int TryFindMatchingBrace(string text, int openBraceOffset)
+        {
+            var depth = 0;
+            for (var i = openBraceOffset; i < text.Length; i++)
+            {
+                if (text[i] == '{')
+                {
+                    depth++;
+                }
+                else if (text[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int FindStatementEnd(string text, int offset)
+        {
+            for (var i = offset; i < text.Length; i++)
+            {
+                if (text[i] == ';')
+                    return i + 1;
+
+                if (text[i] == '{' || text[i] == '}')
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static bool TryGetMemberMutationEnd(string text, int offset, out int endOffset)
+        {
+            endOffset = offset;
+            var current = offset;
+            if (current >= text.Length || text[current] != '.')
+                return false;
+
+            while (current < text.Length && text[current] == '.')
+            {
+                current = SkipWhitespace(text, current + 1);
+                if (current >= text.Length || !IsIdentifierStart(text[current]))
+                    return false;
+
+                current++;
+                while (current < text.Length && IsIdentifierPart(text[current]))
+                    current++;
+
+                current = SkipWhitespace(text, current);
+            }
+
+            if (!TryGetMutationOperatorLength(text, current, out var operatorLength))
+                return false;
+
+            endOffset = current + operatorLength;
+            return true;
+        }
+
+        private static bool TryGetMutationOperatorLength(string text, int offset, out int operatorLength)
+        {
+            operatorLength = 0;
+            if (offset >= text.Length)
+                return false;
+
+            foreach (var mutationOperator in MultiCharacterMutationOperators)
+            {
+                if (!StartsWith(text, offset, mutationOperator))
+                    continue;
+
+                operatorLength = mutationOperator.Length;
+                return true;
+            }
+
+            if (text[offset] == '=' && (offset + 1 >= text.Length || text[offset + 1] != '=' && text[offset + 1] != '>'))
+            {
+                operatorLength = 1;
+                return true;
+            }
+
+            if (offset + 1 < text.Length && SingleCharacterCompoundAssignmentOperators.IndexOf(text[offset]) >= 0 && text[offset + 1] == '=')
+            {
+                operatorLength = 2;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool StartsWith(string text, int offset, string value)
+        {
+            if (offset + value.Length > text.Length)
+                return false;
+
+            for (var i = 0; i < value.Length; i++)
+            {
+                if (text[offset + i] != value[i])
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static int SkipWhitespace(string text, int offset)
+        {
+            var current = offset;
+            while (current < text.Length && char.IsWhiteSpace(text[current]))
+                current++;
+            return current;
+        }
+
+        private static bool IsIdentifierStart(char value)
+        {
+            return value == '_' || char.IsLetter(value);
+        }
+
+        private static bool IsIdentifierPart(char value)
+        {
+            return value == '_' || char.IsLetterOrDigit(value);
+        }
+
+        private sealed class AliasScope
+        {
+            public AliasScope(string name, int startOffset, int endOffset)
+            {
+                Name = name;
+                StartOffset = startOffset;
+                EndOffset = endOffset;
+            }
+
+            public string Name { get; }
+            public int StartOffset { get; }
+            public int EndOffset { get; }
         }
 
         private static (int Line, int Column) GetLineColumn(string text, int offset)
