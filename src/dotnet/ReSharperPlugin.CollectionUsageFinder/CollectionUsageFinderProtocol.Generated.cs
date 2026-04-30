@@ -68,7 +68,7 @@ namespace JetBrains.Rider.Model
 
 
 
-    protected override long SerializationHash => 3567922973589202405L;
+    protected override long SerializationHash => -5550225387213516425L;
 
     protected override Action<ISerializers> Register => RegisterDeclaredTypesSerializers;
     public static void RegisterDeclaredTypesSerializers(ISerializers serializers)
@@ -202,7 +202,7 @@ namespace JetBrains.Rider.Model
 
 
   /// <summary>
-  /// <p>Generated from: CollectionUsageFinderProtocol.kt:31</p>
+  /// <p>Generated from: CollectionUsageFinderProtocol.kt:34</p>
   /// </summary>
   public sealed class CollectionUsageFindResponse : IPrintable, IEquatable<CollectionUsageFindResponse>
   {
@@ -346,6 +346,9 @@ namespace JetBrains.Rider.Model
     public int Column {get; private set;}
     [NotNull] public string Kind {get; private set;}
     [NotNull] public string KindDisplayName {get; private set;}
+    [NotNull] public string OperationKind {get; private set;}
+    [NotNull] public string OperationDisplayName {get; private set;}
+    [NotNull] public string OperationName {get; private set;}
     [NotNull] public string Text {get; private set;}
     [NotNull] public string PreviewText {get; private set;}
     public int PreviewStartLine {get; private set;}
@@ -362,6 +365,9 @@ namespace JetBrains.Rider.Model
       int column,
       [NotNull] string kind,
       [NotNull] string kindDisplayName,
+      [NotNull] string operationKind,
+      [NotNull] string operationDisplayName,
+      [NotNull] string operationName,
       [NotNull] string text,
       [NotNull] string previewText,
       int previewStartLine,
@@ -372,6 +378,9 @@ namespace JetBrains.Rider.Model
       if (filePath == null) throw new ArgumentNullException("filePath");
       if (kind == null) throw new ArgumentNullException("kind");
       if (kindDisplayName == null) throw new ArgumentNullException("kindDisplayName");
+      if (operationKind == null) throw new ArgumentNullException("operationKind");
+      if (operationDisplayName == null) throw new ArgumentNullException("operationDisplayName");
+      if (operationName == null) throw new ArgumentNullException("operationName");
       if (text == null) throw new ArgumentNullException("text");
       if (previewText == null) throw new ArgumentNullException("previewText");
 
@@ -382,6 +391,9 @@ namespace JetBrains.Rider.Model
       Column = column;
       Kind = kind;
       KindDisplayName = kindDisplayName;
+      OperationKind = operationKind;
+      OperationDisplayName = operationDisplayName;
+      OperationName = operationName;
       Text = text;
       PreviewText = previewText;
       PreviewStartLine = previewStartLine;
@@ -390,7 +402,7 @@ namespace JetBrains.Rider.Model
     }
     //secondary constructor
     //deconstruct trait
-    public void Deconstruct([NotNull] out string filePath, out int startOffset, out int length, out int line, out int column, [NotNull] out string kind, [NotNull] out string kindDisplayName, [NotNull] out string text, [NotNull] out string previewText, out int previewStartLine, out int previewHighlightStart, out int previewHighlightLength)
+    public void Deconstruct([NotNull] out string filePath, out int startOffset, out int length, out int line, out int column, [NotNull] out string kind, [NotNull] out string kindDisplayName, [NotNull] out string operationKind, [NotNull] out string operationDisplayName, [NotNull] out string operationName, [NotNull] out string text, [NotNull] out string previewText, out int previewStartLine, out int previewHighlightStart, out int previewHighlightLength)
     {
       filePath = FilePath;
       startOffset = StartOffset;
@@ -399,6 +411,9 @@ namespace JetBrains.Rider.Model
       column = Column;
       kind = Kind;
       kindDisplayName = KindDisplayName;
+      operationKind = OperationKind;
+      operationDisplayName = OperationDisplayName;
+      operationName = OperationName;
       text = Text;
       previewText = PreviewText;
       previewStartLine = PreviewStartLine;
@@ -416,12 +431,15 @@ namespace JetBrains.Rider.Model
       var column = reader.ReadInt();
       var kind = reader.ReadString();
       var kindDisplayName = reader.ReadString();
+      var operationKind = reader.ReadString();
+      var operationDisplayName = reader.ReadString();
+      var operationName = reader.ReadString();
       var text = reader.ReadString();
       var previewText = reader.ReadString();
       var previewStartLine = reader.ReadInt();
       var previewHighlightStart = reader.ReadInt();
       var previewHighlightLength = reader.ReadInt();
-      var _result = new CollectionUsageResultItem(filePath, startOffset, length, line, column, kind, kindDisplayName, text, previewText, previewStartLine, previewHighlightStart, previewHighlightLength);
+      var _result = new CollectionUsageResultItem(filePath, startOffset, length, line, column, kind, kindDisplayName, operationKind, operationDisplayName, operationName, text, previewText, previewStartLine, previewHighlightStart, previewHighlightLength);
       return _result;
     };
 
@@ -434,6 +452,9 @@ namespace JetBrains.Rider.Model
       writer.Write(value.Column);
       writer.Write(value.Kind);
       writer.Write(value.KindDisplayName);
+      writer.Write(value.OperationKind);
+      writer.Write(value.OperationDisplayName);
+      writer.Write(value.OperationName);
       writer.Write(value.Text);
       writer.Write(value.PreviewText);
       writer.Write(value.PreviewStartLine);
@@ -457,7 +478,7 @@ namespace JetBrains.Rider.Model
     {
       if (ReferenceEquals(null, other)) return false;
       if (ReferenceEquals(this, other)) return true;
-      return FilePath == other.FilePath && StartOffset == other.StartOffset && Length == other.Length && Line == other.Line && Column == other.Column && Kind == other.Kind && KindDisplayName == other.KindDisplayName && Text == other.Text && PreviewText == other.PreviewText && PreviewStartLine == other.PreviewStartLine && PreviewHighlightStart == other.PreviewHighlightStart && PreviewHighlightLength == other.PreviewHighlightLength;
+      return FilePath == other.FilePath && StartOffset == other.StartOffset && Length == other.Length && Line == other.Line && Column == other.Column && Kind == other.Kind && KindDisplayName == other.KindDisplayName && OperationKind == other.OperationKind && OperationDisplayName == other.OperationDisplayName && OperationName == other.OperationName && Text == other.Text && PreviewText == other.PreviewText && PreviewStartLine == other.PreviewStartLine && PreviewHighlightStart == other.PreviewHighlightStart && PreviewHighlightLength == other.PreviewHighlightLength;
     }
     //hash code trait
     public override int GetHashCode()
@@ -471,6 +492,9 @@ namespace JetBrains.Rider.Model
         hash = hash * 31 + Column.GetHashCode();
         hash = hash * 31 + Kind.GetHashCode();
         hash = hash * 31 + KindDisplayName.GetHashCode();
+        hash = hash * 31 + OperationKind.GetHashCode();
+        hash = hash * 31 + OperationDisplayName.GetHashCode();
+        hash = hash * 31 + OperationName.GetHashCode();
         hash = hash * 31 + Text.GetHashCode();
         hash = hash * 31 + PreviewText.GetHashCode();
         hash = hash * 31 + PreviewStartLine.GetHashCode();
@@ -491,6 +515,9 @@ namespace JetBrains.Rider.Model
         printer.Print("column = "); Column.PrintEx(printer); printer.Println();
         printer.Print("kind = "); Kind.PrintEx(printer); printer.Println();
         printer.Print("kindDisplayName = "); KindDisplayName.PrintEx(printer); printer.Println();
+        printer.Print("operationKind = "); OperationKind.PrintEx(printer); printer.Println();
+        printer.Print("operationDisplayName = "); OperationDisplayName.PrintEx(printer); printer.Println();
+        printer.Print("operationName = "); OperationName.PrintEx(printer); printer.Println();
         printer.Print("text = "); Text.PrintEx(printer); printer.Println();
         printer.Print("previewText = "); PreviewText.PrintEx(printer); printer.Println();
         printer.Print("previewStartLine = "); PreviewStartLine.PrintEx(printer); printer.Println();

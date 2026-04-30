@@ -50,7 +50,7 @@ class CollectionUsageFinderProtocol private constructor(
         }
 
 
-        const val serializationHash = 3567922973589202405L
+        const val serializationHash = -5550225387213516425L
 
     }
     override val serializersOwner: ISerializersOwner get() = CollectionUsageFinderProtocol
@@ -160,7 +160,7 @@ data class CollectionUsageFindRequest (
 
 
 /**
- * #### Generated from [CollectionUsageFinderProtocol.kt:31]
+ * #### Generated from [CollectionUsageFinderProtocol.kt:34]
  */
 data class CollectionUsageFindResponse (
     val success: Boolean,
@@ -259,6 +259,9 @@ data class CollectionUsageResultItem (
     val column: Int,
     val kind: String,
     val kindDisplayName: String,
+    val operationKind: String,
+    val operationDisplayName: String,
+    val operationName: String,
     val text: String,
     val previewText: String,
     val previewStartLine: Int,
@@ -280,12 +283,15 @@ data class CollectionUsageResultItem (
             val column = buffer.readInt()
             val kind = buffer.readString()
             val kindDisplayName = buffer.readString()
+            val operationKind = buffer.readString()
+            val operationDisplayName = buffer.readString()
+            val operationName = buffer.readString()
             val text = buffer.readString()
             val previewText = buffer.readString()
             val previewStartLine = buffer.readInt()
             val previewHighlightStart = buffer.readInt()
             val previewHighlightLength = buffer.readInt()
-            return CollectionUsageResultItem(filePath, startOffset, length, line, column, kind, kindDisplayName, text, previewText, previewStartLine, previewHighlightStart, previewHighlightLength)
+            return CollectionUsageResultItem(filePath, startOffset, length, line, column, kind, kindDisplayName, operationKind, operationDisplayName, operationName, text, previewText, previewStartLine, previewHighlightStart, previewHighlightLength)
         }
 
         override fun write(ctx: SerializationCtx, buffer: AbstractBuffer, value: CollectionUsageResultItem)  {
@@ -296,6 +302,9 @@ data class CollectionUsageResultItem (
             buffer.writeInt(value.column)
             buffer.writeString(value.kind)
             buffer.writeString(value.kindDisplayName)
+            buffer.writeString(value.operationKind)
+            buffer.writeString(value.operationDisplayName)
+            buffer.writeString(value.operationName)
             buffer.writeString(value.text)
             buffer.writeString(value.previewText)
             buffer.writeInt(value.previewStartLine)
@@ -323,6 +332,9 @@ data class CollectionUsageResultItem (
         if (column != other.column) return false
         if (kind != other.kind) return false
         if (kindDisplayName != other.kindDisplayName) return false
+        if (operationKind != other.operationKind) return false
+        if (operationDisplayName != other.operationDisplayName) return false
+        if (operationName != other.operationName) return false
         if (text != other.text) return false
         if (previewText != other.previewText) return false
         if (previewStartLine != other.previewStartLine) return false
@@ -341,6 +353,9 @@ data class CollectionUsageResultItem (
         __r = __r*31 + column.hashCode()
         __r = __r*31 + kind.hashCode()
         __r = __r*31 + kindDisplayName.hashCode()
+        __r = __r*31 + operationKind.hashCode()
+        __r = __r*31 + operationDisplayName.hashCode()
+        __r = __r*31 + operationName.hashCode()
         __r = __r*31 + text.hashCode()
         __r = __r*31 + previewText.hashCode()
         __r = __r*31 + previewStartLine.hashCode()
@@ -359,6 +374,9 @@ data class CollectionUsageResultItem (
             print("column = "); column.print(printer); println()
             print("kind = "); kind.print(printer); println()
             print("kindDisplayName = "); kindDisplayName.print(printer); println()
+            print("operationKind = "); operationKind.print(printer); println()
+            print("operationDisplayName = "); operationDisplayName.print(printer); println()
+            print("operationName = "); operationName.print(printer); println()
             print("text = "); text.print(printer); println()
             print("previewText = "); previewText.print(printer); println()
             print("previewStartLine = "); previewStartLine.print(printer); println()

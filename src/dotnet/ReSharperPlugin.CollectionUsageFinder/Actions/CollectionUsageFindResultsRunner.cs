@@ -345,12 +345,13 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 sourceText,
                 targetName,
                 targetOffset => IsTargetReferenceAllowedForDocument(searchDocument, target, targetOffset));
+            var previewSource = CollectionUsagePreviewBuilder.CreateSource(sourceText);
             return analysisOccurrences.Select(
                 occurrence => new CollectionUsageAnalysisItem(
                     searchDocument.SourceFile,
                     searchDocument.Document,
                     GetSourceFilePath(searchDocument.SourceFile),
-                    sourceText,
+                    previewSource,
                     occurrence));
         }
 
@@ -600,18 +601,14 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 [NotNull] IPsiSourceFile sourceFile,
                 [NotNull] IDocument document,
                 [NotNull] string filePath,
-                [NotNull] string sourceText,
+                [NotNull] CollectionUsagePreviewSource previewSource,
                 [NotNull] CollectionUsageOccurrence occurrence)
             {
                 SourceFile = sourceFile;
                 Document = document;
                 FilePath = filePath;
                 Occurrence = occurrence;
-                Preview = CollectionUsagePreviewBuilder.Build(
-                    sourceText,
-                    occurrence.StartOffset,
-                    occurrence.Length,
-                    4);
+                Preview = previewSource.Build(occurrence.StartOffset, occurrence.Length, 4);
             }
 
             [NotNull]
@@ -642,6 +639,15 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
             [NotNull]
             public string KindDisplayName => GetCategoryDisplayName(Occurrence.Kind);
+
+            [NotNull]
+            public string OperationKind => Occurrence.OperationKind.ToString();
+
+            [NotNull]
+            public string OperationDisplayName => CollectionUsageOperations.ToDisplayName(Occurrence.OperationKind);
+
+            [NotNull]
+            public string OperationName => Occurrence.OperationName;
 
             [NotNull]
             public string Text => Occurrence.Text;

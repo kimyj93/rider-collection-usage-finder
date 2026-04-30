@@ -1,13 +1,22 @@
 package com.jetbrains.rider.plugins.collectionusagefinder
 
-import com.intellij.openapi.application.ApplicationManager
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.ScrollType
+import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.markup.HighlighterLayer
+import com.intellij.openapi.editor.markup.HighlighterTargetArea
+import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.fileTypes.FileType
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopup
@@ -15,11 +24,14 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.ColoredListCellRenderer
+import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SimpleTextAttributes
-import com.intellij.ui.components.JBCheckBox
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
+import com.intellij.util.ui.AsyncProcessIcon
+import com.intellij.util.ui.JBUI
 import com.jetbrains.rd.framework.RdTaskResult
 import com.jetbrains.rd.ide.model.CollectionUsageFindRequest
 import com.jetbrains.rd.ide.model.CollectionUsageFindResponse
@@ -27,24 +39,33 @@ import com.jetbrains.rd.ide.model.CollectionUsageResultItem
 import com.jetbrains.rd.ide.model.collectionUsageFinderProtocol
 import com.jetbrains.rider.protocol.protocol
 import java.awt.BorderLayout
+import java.awt.CardLayout
+import java.awt.Color
+import java.awt.Component
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Insets
+import java.awt.Point
+import java.awt.RenderingHints
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
+import javax.swing.Box
 import javax.swing.DefaultListModel
+import javax.swing.Icon
+import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.JSplitPane
-import javax.swing.JTextPane
+import javax.swing.JToggleButton
 import javax.swing.ListSelectionModel
-import javax.swing.border.EmptyBorder
-import javax.swing.text.DefaultStyledDocument
-import javax.swing.text.SimpleAttributeSet
-import javax.swing.text.StyleConstants
+import javax.swing.SwingConstants
 
 class FindCollectionUsagesFrontendAction : AnAction(
     "Find Collection Usages",
@@ -82,288 +103,841 @@ class FindCollectionUsagesFrontendAction : AnAction(
         }
 
         FileDocumentManager.getInstance().saveDocument(editor.document)
+
+        val csharpFileType = FileTypeManager.getInstance().getFileTypeByExtension("cs")
+        val popupUi = CollectionUsagePopupUi(project, csharpFileType)
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(popupUi, popupUi.focusComponent)
+            .setTitle("Collection Usage Finder")
+            .setResizable(true)
+            .setMovable(true)
+            .setRequestFocus(true)
+            .setCancelCallback {
+                popupUi.release()
+                true
+            }
+            .createPopup()
+
+        popupUi.bindPopup(popup)
+        popupUi.showSearching()
+        popup.showAtCaret(editor)
+
         val request = CollectionUsageFindRequest(virtualFile.path, editor.caretModel.offset)
         val protocol = project.protocol
-
         val task = runCatching {
             protocol.collectionUsageFinderProtocol
                 .findCollectionUsages
                 .start(request)
         }.getOrElse { error ->
-            Messages.showErrorDialog(
-                project,
-                "CollectionUsageFinder backend request failed:\n${error.message ?: error.javaClass.name}",
-                "CollectionUsageFinder"
+            popupUi.showError(
+                "검색 요청 실패",
+                error.message ?: error.javaClass.name
             )
             return
         }
 
         task.result.advise(protocol.lifetime) { taskResult ->
             ApplicationManager.getApplication().invokeLater {
-                if (project.isDisposed) {
+                if (project.isDisposed || popupUi.isReleased) {
                     return@invokeLater
                 }
 
                 when (taskResult) {
-                    is RdTaskResult.Success -> showResult(project, editor, taskResult.value)
-                    is RdTaskResult.Fault -> Messages.showErrorDialog(
-                        project,
-                        "CollectionUsageFinder backend request failed:\n${taskResult.error.reasonMessage.ifBlank { taskResult.error.message ?: taskResult.error.javaClass.name }}",
-                        "CollectionUsageFinder"
+                    is RdTaskResult.Success -> popupUi.showResponse(taskResult.value)
+                    is RdTaskResult.Fault -> popupUi.showError(
+                        "backend 검색 실패",
+                        taskResult.error.reasonMessage.ifBlank {
+                            taskResult.error.message ?: taskResult.error.javaClass.name
+                        }
                     )
-                    is RdTaskResult.Cancelled -> Messages.showInfoMessage(
-                        project,
-                        "CollectionUsageFinder backend request was cancelled.",
-                        "CollectionUsageFinder"
+                    is RdTaskResult.Cancelled -> popupUi.showEmpty(
+                        "검색 취소됨",
+                        "CollectionUsageFinder backend request was cancelled."
                     )
                 }
             }
         }
     }
 
-    private fun showResult(project: Project, editor: Editor, response: CollectionUsageFindResponse) {
-        if (!response.success) {
-            Messages.showInfoMessage(project, response.message, "CollectionUsageFinder")
-            return
+    private fun JBPopup.showAtCaret(editor: Editor) {
+        val caretPoint = editor.visualPositionToXY(editor.caretModel.visualPosition)
+        caretPoint.y += editor.lineHeight
+        show(RelativePoint(editor.contentComponent, caretPoint))
+    }
+
+    private class CollectionUsagePopupUi(
+        private val project: Project,
+        private val csharpFileType: FileType
+    ) : JPanel(BorderLayout()) {
+        private val categories = createUsageCategories()
+        private val operationFilters = createUsageOperationFilters()
+        private val selectedCategoryIds = categories.mapTo(mutableSetOf()) { it.id }
+        private val selectedOperationIds = operationFilters.mapTo(mutableSetOf()) { it.id }
+        private val collapsedCategoryIds = mutableSetOf<String>()
+        private val collapsedOperationIds = mutableSetOf<String>()
+        private val cardLayout = CardLayout()
+        private val cards = JPanel(cardLayout)
+        private val listModel = DefaultListModel<PopupRow>()
+        private val list = JBList(listModel)
+        private val countLabel = JBLabel()
+        private val titleLabel = JBLabel("Collection Usage 검색")
+        private val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
+        private val operationFiltersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
+        private val previewTitle = JBLabel("미리보기")
+        private val previewEditor = CollectionUsagePreviewEditor(project, csharpFileType)
+        private val messageIcon = JBLabel()
+        private val messageSpinner = AsyncProcessIcon("CollectionUsageFinder")
+        private val messageTitle = JBLabel()
+        private val messageDescription = JBLabel()
+        private val renderer = CollectionUsagePopupRenderer("")
+        private var popup: JBPopup? = null
+        private var response: CollectionUsageFindResponse? = null
+        private var released = false
+
+        val focusComponent: JComponent = list
+
+        val isReleased: Boolean
+            get() = released
+
+        init {
+            background = UsagePopupColors.panelBackground
+            preferredSize = Dimension(940, 660)
+
+            configureList()
+            cards.background = UsagePopupColors.panelBackground
+            cards.add(createMessagePanel(), MESSAGE_CARD)
+            cards.add(createResultsPanel(), RESULTS_CARD)
+
+            add(createHeaderPanel(), BorderLayout.NORTH)
+            add(cards, BorderLayout.CENTER)
         }
 
-        if (response.items.isEmpty()) {
-            Messages.showInfoMessage(
-                project,
-                response.message.ifBlank {
-                    "No collection-specific usages found for '${response.targetName}'."
-                },
-                "CollectionUsageFinder"
+        fun bindPopup(popup: JBPopup) {
+            this.popup = popup
+            installNavigationHandlers()
+        }
+
+        fun showSearching() {
+            titleLabel.text = "Collection Usage 검색 · backend 분석 요청 중"
+            countLabel.text = ""
+            showMessageCard(
+                title = "검색 중...",
+                description = "대상 컬렉션의 사용 위치를 찾는 중입니다.",
+                icon = null,
+                spinning = true
             )
-            return
         }
 
-        val categories = createUsageCategories()
-        val selectedCategoryIds = categories.mapTo(mutableSetOf()) { it.id }
-        val listModel = DefaultListModel<PopupRow>()
-        val list = JBList(listModel)
-        val countLabel = JBLabel()
-        val previewTitle = JBLabel("미리보기")
-        val previewPane = createPreviewPane()
+        fun showResponse(response: CollectionUsageFindResponse) {
+            this.response = response
+            titleLabel.text = "'${response.targetName.ifBlank { "컬렉션" }}' 사용 위치 · " +
+                "${response.collectionKind.ifBlank { "C# collection" }} · ${formatScope(response.scope)}"
+            renderer.targetName = response.targetName
 
-        list.visibleRowCount = minOf(response.items.size + categories.size, 14)
-        list.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        list.cellRenderer = CollectionUsagePopupRenderer()
+            if (!response.success) {
+                countLabel.text = ""
+                showMessageCard(
+                    title = "검색할 수 없음",
+                    description = response.message.ifBlank { "지원하지 않는 컬렉션 대상입니다." },
+                    icon = AllIcons.General.Information,
+                    spinning = false
+                )
+                return
+            }
 
-        fun refreshRows() {
-            val visibleItems = response.items.filter { item ->
-                categories.any { category -> category.id in selectedCategoryIds && category.matches(item) }
+            if (response.items.isEmpty()) {
+                countLabel.text = "0개의 사용 위치"
+                showMessageCard(
+                    title = "검색 결과 없음",
+                    description = response.message.ifBlank {
+                        "'${response.targetName}'에 대한 컬렉션 전용 사용 위치를 찾지 못했습니다."
+                    },
+                    icon = AllIcons.General.Information,
+                    spinning = false
+                )
+                return
+            }
+
+            selectedCategoryIds.clear()
+            selectedCategoryIds += categories.map { it.id }
+            selectedOperationIds.clear()
+            selectedOperationIds += operationFilters.map { it.id }
+            collapsedCategoryIds.clear()
+            collapsedOperationIds.clear()
+            rebuildFilters(response)
+            refreshRows()
+            cardLayout.show(cards, RESULTS_CARD)
+        }
+
+        fun showEmpty(title: String, description: String) {
+            countLabel.text = ""
+            showMessageCard(title, description, AllIcons.General.Information, spinning = false)
+        }
+
+        fun showError(title: String, description: String) {
+            countLabel.text = ""
+            showMessageCard(title, description, AllIcons.General.Error, spinning = false)
+        }
+
+        fun release() {
+            if (released) {
+                return
+            }
+
+            released = true
+            previewEditor.release()
+        }
+
+        private fun configureList() {
+            list.visibleRowCount = 14
+            list.selectionMode = ListSelectionModel.SINGLE_SELECTION
+            list.cellRenderer = renderer
+            list.background = UsagePopupColors.listBackground
+            list.selectionBackground = UsagePopupColors.selectionBackground
+            list.selectionForeground = UsagePopupColors.selectedForeground
+            list.fixedCellHeight = -1
+        }
+
+        private fun createHeaderPanel(): JPanel {
+            titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, titleLabel.font.size2D)
+            titleLabel.foreground = UsagePopupColors.primaryForeground
+
+            countLabel.foreground = UsagePopupColors.mutedForeground
+            countLabel.font = countLabel.font.deriveFont(Font.PLAIN, countLabel.font.size2D - 1f)
+
+            val headerPanel = JPanel(BorderLayout())
+            headerPanel.background = UsagePopupColors.panelBackground
+            headerPanel.border = JBUI.Borders.empty(6, 12, 5, 12)
+            headerPanel.add(titleLabel, BorderLayout.WEST)
+            headerPanel.add(countLabel, BorderLayout.EAST)
+            return headerPanel
+        }
+
+        private fun createMessagePanel(): JPanel {
+            val content = Box.createVerticalBox()
+            content.alignmentX = Component.CENTER_ALIGNMENT
+
+            messageSpinner.alignmentX = Component.CENTER_ALIGNMENT
+            messageIcon.alignmentX = Component.CENTER_ALIGNMENT
+            messageTitle.alignmentX = Component.CENTER_ALIGNMENT
+            messageDescription.alignmentX = Component.CENTER_ALIGNMENT
+            messageTitle.horizontalAlignment = SwingConstants.CENTER
+            messageDescription.horizontalAlignment = SwingConstants.CENTER
+            messageTitle.font = messageTitle.font.deriveFont(Font.BOLD, messageTitle.font.size2D + 1f)
+            messageTitle.foreground = UsagePopupColors.primaryForeground
+            messageDescription.foreground = UsagePopupColors.mutedForeground
+
+            content.add(messageSpinner)
+            content.add(messageIcon)
+            content.add(Box.createVerticalStrut(JBUI.scale(12)))
+            content.add(messageTitle)
+            content.add(Box.createVerticalStrut(JBUI.scale(6)))
+            content.add(messageDescription)
+
+            val panel = JPanel(BorderLayout())
+            panel.background = UsagePopupColors.listBackground
+            panel.border = JBUI.Borders.empty(48, 32, 48, 32)
+            panel.add(content, BorderLayout.CENTER)
+            return panel
+        }
+
+        private fun createResultsPanel(): JPanel {
+            filtersPanel.background = UsagePopupColors.panelBackground
+            filtersPanel.border = JBUI.Borders.empty()
+            operationFiltersPanel.background = UsagePopupColors.panelBackground
+            operationFiltersPanel.border = JBUI.Borders.empty()
+
+            val filtersStack = JPanel(BorderLayout())
+            filtersStack.background = UsagePopupColors.panelBackground
+            filtersStack.border = JBUI.Borders.empty(0, 8, 1, 8)
+            filtersStack.add(createFilterSection("유형", filtersPanel, prominent = true), BorderLayout.NORTH)
+            filtersStack.add(createFilterSection("상세 동작", operationFiltersPanel, prominent = false), BorderLayout.CENTER)
+
+            val topPanel = JPanel(BorderLayout())
+            topPanel.background = UsagePopupColors.panelBackground
+            topPanel.add(filtersStack, BorderLayout.CENTER)
+
+            val resultsPanel = JPanel(BorderLayout())
+            resultsPanel.background = UsagePopupColors.panelBackground
+            resultsPanel.add(topPanel, BorderLayout.NORTH)
+            val resultsScrollPane = ScrollPaneFactory.createScrollPane(list)
+            resultsScrollPane.border = JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0)
+            resultsPanel.add(resultsScrollPane, BorderLayout.CENTER)
+
+            val previewPanel = JPanel(BorderLayout())
+            previewPanel.background = UsagePopupColors.previewHeaderBackground
+            previewPanel.border = JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0)
+            previewTitle.foreground = UsagePopupColors.primaryForeground
+            previewTitle.font = previewTitle.font.deriveFont(Font.BOLD)
+            previewTitle.border = JBUI.Borders.empty(7, 12, 5, 12)
+            previewPanel.add(previewTitle, BorderLayout.NORTH)
+            previewPanel.add(previewEditor, BorderLayout.CENTER)
+
+            val splitter = JSplitPane(JSplitPane.VERTICAL_SPLIT, resultsPanel, previewPanel)
+            splitter.resizeWeight = 0.56
+            splitter.dividerSize = JBUI.scale(4)
+            splitter.border = JBUI.Borders.empty()
+            splitter.background = UsagePopupColors.panelBackground
+
+            val panel = JPanel(BorderLayout())
+            panel.background = UsagePopupColors.panelBackground
+            panel.add(splitter, BorderLayout.CENTER)
+            return panel
+        }
+
+        private fun createFilterSection(title: String, contentPanel: JPanel, prominent: Boolean): JPanel {
+            val titleLabel = JBLabel(title)
+            titleLabel.foreground = if (prominent) UsagePopupColors.primaryForeground else UsagePopupColors.mutedForeground
+            titleLabel.font = titleLabel.font.deriveFont(
+                if (prominent) Font.BOLD else Font.PLAIN,
+                titleLabel.font.size2D + if (prominent) -0.5f else -1.5f
+            )
+            titleLabel.border = JBUI.Borders.empty(0, 1, 0, 6)
+
+            val section = JPanel(BorderLayout())
+            section.background = if (prominent) UsagePopupColors.panelBackground else UsagePopupColors.detailFilterBackground
+            section.border = if (prominent) {
+                JBUI.Borders.empty(0, 1, 0, 1)
+            } else {
+                JBUI.Borders.compound(
+                    JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0),
+                    JBUI.Borders.empty(1, 1, 1, 1)
+                )
+            }
+
+            contentPanel.background = section.background
+            section.add(titleLabel, BorderLayout.WEST)
+            section.add(contentPanel, BorderLayout.CENTER)
+            return section
+        }
+
+        private fun showMessageCard(title: String, description: String, icon: Icon?, spinning: Boolean) {
+            filtersPanel.removeAll()
+            operationFiltersPanel.removeAll()
+            listModel.clear()
+            previewEditor.updateText("표시할 결과가 없습니다.", 1, 0, 0, UsagePopupColors.highlightBackground)
+
+            messageTitle.text = title
+            messageDescription.text = "<html><div style='width: 540px; text-align: center;'>${escapeHtml(description)}</div></html>"
+            messageSpinner.isVisible = spinning
+            messageIcon.icon = icon
+            messageIcon.isVisible = !spinning && icon != null
+            cardLayout.show(cards, MESSAGE_CARD)
+        }
+
+        private fun rebuildFilters(response: CollectionUsageFindResponse) {
+            filtersPanel.removeAll()
+            for (category in categories) {
+                val count = response.items.count(category.matches)
+                val chip = FilterChipButton("${category.title}  $count", category.color, prominent = true)
+                chip.icon = category.icon
+                chip.isSelected = true
+                chip.isEnabled = count > 0
+                chip.addActionListener {
+                    if (chip.isSelected) {
+                        selectedCategoryIds += category.id
+                    } else {
+                        selectedCategoryIds -= category.id
+                    }
+                    refreshRows()
+                }
+                filtersPanel.add(chip)
+            }
+
+            filtersPanel.revalidate()
+            filtersPanel.repaint()
+
+            operationFiltersPanel.removeAll()
+            for (operationFilter in operationFilters) {
+                val count = response.items.count(operationFilter.matches)
+                if (count == 0) {
+                    continue
+                }
+
+                val chip = FilterChipButton("${operationFilter.title} $count", operationFilter.color, prominent = false)
+                chip.icon = operationFilter.icon
+                chip.isSelected = true
+                chip.addActionListener {
+                    if (chip.isSelected) {
+                        selectedOperationIds += operationFilter.id
+                    } else {
+                        selectedOperationIds -= operationFilter.id
+                    }
+                    refreshRows()
+                }
+                operationFiltersPanel.add(chip)
+            }
+
+            operationFiltersPanel.revalidate()
+            operationFiltersPanel.repaint()
+        }
+
+        private fun refreshRows() {
+            val currentResponse = response ?: return
+            val visibleItems = currentResponse.items.filter { item ->
+                isSelectedCategory(item) && isSelectedOperation(item)
             }
             val rows = createRows(visibleItems, categories.filter { it.id in selectedCategoryIds })
             setRows(listModel, rows)
-            countLabel.text = if (visibleItems.size == response.items.size) {
-                "${response.items.size}개의 사용 위치"
+            countLabel.text = if (visibleItems.size == currentResponse.items.size) {
+                "${currentResponse.items.size}개의 사용 위치"
             } else {
-                "${visibleItems.size} / ${response.items.size}개의 사용 위치"
+                "${visibleItems.size} / ${currentResponse.items.size}개의 사용 위치"
             }
-            selectFirstUsageRow(list)
-            updatePreview(previewTitle, previewPane, list.selectedValue as? PopupRow.Usage)
+            selectFirstUsageRow()
+            updatePreview(list.selectedValue as? PopupRow.Usage)
         }
 
-        list.addListSelectionListener { event ->
-            if (!event.valueIsAdjusting) {
-                updatePreview(previewTitle, previewPane, list.selectedValue as? PopupRow.Usage)
-            }
+        private fun isSelectedCategory(item: CollectionUsageResultItem): Boolean {
+            return categories.any { category -> category.id in selectedCategoryIds && category.matches(item) }
         }
 
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.add(JBLabel("'${response.targetName}' 사용 위치"), BorderLayout.WEST)
-        headerPanel.add(countLabel, BorderLayout.EAST)
+        private fun isSelectedOperation(item: CollectionUsageResultItem): Boolean {
+            val matchingOperationFilters = operationFilters.filter { it.matches(item) }
+            if (matchingOperationFilters.isEmpty()) {
+                return true
+            }
 
-        val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0))
-        for (category in categories) {
-            val count = response.items.count(category.matches)
-            val checkBox = JBCheckBox("${category.title} ($count)", true)
-            checkBox.addActionListener {
-                if (checkBox.isSelected) {
-                    selectedCategoryIds += category.id
-                } else {
-                    selectedCategoryIds -= category.id
+            return matchingOperationFilters.any { it.id in selectedOperationIds }
+        }
+
+        private fun createRows(
+            items: List<CollectionUsageResultItem>,
+            categories: List<UsageCategory>
+        ): List<PopupRow> {
+            val rows = mutableListOf<PopupRow>()
+            val consumed = mutableSetOf<CollectionUsageResultItem>()
+
+            for (category in categories) {
+                val groupItems = items.filter(category.matches)
+                if (groupItems.isEmpty()) {
+                    continue
                 }
-                refreshRows()
-            }
-            filtersPanel.add(checkBox)
-        }
 
-        val controlsPanel = JPanel(BorderLayout())
-        controlsPanel.border = EmptyBorder(8, 10, 6, 10)
-        controlsPanel.add(headerPanel, BorderLayout.NORTH)
-        controlsPanel.add(filtersPanel, BorderLayout.SOUTH)
+                val categoryCollapsed = category.id in collapsedCategoryIds
+                rows += PopupRow.CategoryHeader(category, groupItems.size, categoryCollapsed)
+                consumed += groupItems
+                if (categoryCollapsed) {
+                    continue
+                }
 
-        val resultsPanel = JPanel(BorderLayout())
-        resultsPanel.add(controlsPanel, BorderLayout.NORTH)
-        resultsPanel.add(ScrollPaneFactory.createScrollPane(list), BorderLayout.CENTER)
+                val operationConsumed = mutableSetOf<CollectionUsageResultItem>()
+                for (operationFilter in operationFilters.filter { it.id in selectedOperationIds }) {
+                    val operationItems = groupItems.filter(operationFilter.matches)
+                    if (operationItems.isEmpty()) {
+                        continue
+                    }
 
-        val previewPanel = JPanel(BorderLayout())
-        previewTitle.border = EmptyBorder(6, 10, 4, 10)
-        previewPanel.add(previewTitle, BorderLayout.NORTH)
-        previewPanel.add(ScrollPaneFactory.createScrollPane(previewPane), BorderLayout.CENTER)
+                    val operationId = createOperationCollapseId(category.id, operationFilter.id)
+                    val operationCollapsed = operationId in collapsedOperationIds
+                    rows += PopupRow.OperationHeader(
+                        operationId,
+                        operationFilter.title,
+                        operationItems.size,
+                        operationFilter.color,
+                        operationFilter.icon,
+                        operationCollapsed
+                    )
+                    operationConsumed += operationItems
+                    if (!operationCollapsed) {
+                        rows += operationItems.map { PopupRow.Usage(it) }
+                    }
+                }
 
-        val splitter = JSplitPane(JSplitPane.VERTICAL_SPLIT, resultsPanel, previewPanel)
-        splitter.resizeWeight = 0.56
-        splitter.dividerSize = 5
-
-        val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(920, 640)
-        panel.add(splitter, BorderLayout.CENTER)
-
-        val popup = JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(panel, list)
-            .setTitle("Collection Usages of '${response.targetName}'")
-            .setResizable(true)
-            .setMovable(true)
-            .setRequestFocus(true)
-            .createPopup()
-
-        installNavigationHandlers(project, list, popup)
-        refreshRows()
-        popup.showInBestPositionFor(editor)
-    }
-
-    private fun createRows(
-        items: List<CollectionUsageResultItem>,
-        categories: List<UsageCategory>
-    ): List<PopupRow> {
-        val rows = mutableListOf<PopupRow>()
-        val consumed = mutableSetOf<CollectionUsageResultItem>()
-
-        for (category in categories) {
-            val groupItems = items.filter(category.matches)
-            if (groupItems.isEmpty()) {
-                continue
-            }
-
-            rows += PopupRow.Header(category.title, groupItems.size)
-            rows += groupItems.map { PopupRow.Usage(it) }
-            consumed += groupItems
-        }
-
-        val otherItems = items.filterNot(consumed::contains)
-        if (otherItems.isNotEmpty()) {
-            rows += PopupRow.Header("기타", otherItems.size)
-            rows += otherItems.map { PopupRow.Usage(it) }
-        }
-
-        return rows
-    }
-
-    private fun setRows(model: DefaultListModel<PopupRow>, rows: List<PopupRow>) {
-        model.clear()
-        rows.forEach(model::addElement)
-    }
-
-    private fun installNavigationHandlers(project: Project, list: JBList<PopupRow>, popup: JBPopup) {
-        fun navigateSelected() {
-            val row = list.selectedValue as? PopupRow.Usage ?: return
-            navigateToUsage(project, row.item, popup)
-        }
-
-        list.addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) {
-                    navigateSelected()
+                val otherOperationItems = groupItems.filterNot(operationConsumed::contains)
+                if (otherOperationItems.isNotEmpty()) {
+                    val operationId = createOperationCollapseId(category.id, "other")
+                    val operationCollapsed = operationId in collapsedOperationIds
+                    rows += PopupRow.OperationHeader(
+                        operationId,
+                        "기타",
+                        otherOperationItems.size,
+                        UsagePopupColors.mutedForeground,
+                        null,
+                        operationCollapsed
+                    )
+                    if (!operationCollapsed) {
+                        rows += otherOperationItems.map { PopupRow.Usage(it) }
+                    }
                 }
             }
-        })
-        list.addKeyListener(object : KeyAdapter() {
-            override fun keyPressed(e: KeyEvent) {
-                if (e.keyCode == KeyEvent.VK_ENTER) {
-                    navigateSelected()
-                    e.consume()
+
+            val otherItems = items.filterNot(consumed::contains)
+            if (otherItems.isNotEmpty()) {
+                rows += PopupRow.CategoryHeader(
+                    UsageCategory("other", "기타", UsagePopupColors.mutedForeground, AllIcons.General.Information) { false },
+                    otherItems.size,
+                    collapsed = false
+                )
+                rows += otherItems.map { PopupRow.Usage(it) }
+            }
+
+            return rows
+        }
+
+        private fun createOperationCollapseId(categoryId: String, operationId: String): String {
+            return "$categoryId:$operationId"
+        }
+
+        private fun setRows(model: DefaultListModel<PopupRow>, rows: List<PopupRow>) {
+            model.clear()
+            rows.forEach(model::addElement)
+        }
+
+        private fun installNavigationHandlers() {
+            fun activateRow(row: PopupRow?) {
+                when (row) {
+                    is PopupRow.CategoryHeader -> toggleCategory(row.category.id)
+                    is PopupRow.OperationHeader -> toggleOperation(row.id)
+                    is PopupRow.Usage -> navigateToUsage(row.item)
+                    null -> return
                 }
             }
-        })
-    }
 
-    private fun navigateToUsage(project: Project, item: CollectionUsageResultItem, popup: JBPopup) {
-        val filePath = FileUtil.toSystemIndependentName(item.filePath)
-        val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath)
-        if (virtualFile == null) {
-            Messages.showErrorDialog(
-                project,
-                "Could not open result file:\n${item.filePath}",
-                "CollectionUsageFinder"
+            list.addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    val index = list.locationToIndex(e.point)
+                    if (index < 0) {
+                        return
+                    }
+
+                    val row = list.model.getElementAt(index)
+                    if (row is PopupRow.CategoryHeader || row is PopupRow.OperationHeader) {
+                        activateRow(row)
+                        e.consume()
+                        return
+                    }
+
+                    if (e.clickCount == 2 && row is PopupRow.Usage) {
+                        activateRow(row)
+                    }
+                }
+            })
+            list.addKeyListener(object : KeyAdapter() {
+                override fun keyPressed(e: KeyEvent) {
+                    if (e.keyCode == KeyEvent.VK_ENTER) {
+                        activateRow(list.selectedValue)
+                        e.consume()
+                    }
+                }
+            })
+            list.addListSelectionListener { event ->
+                if (!event.valueIsAdjusting) {
+                    updatePreview(list.selectedValue as? PopupRow.Usage)
+                }
+            }
+        }
+
+        private fun toggleCategory(categoryId: String) {
+            if (categoryId in collapsedCategoryIds) {
+                collapsedCategoryIds -= categoryId
+            } else {
+                collapsedCategoryIds += categoryId
+            }
+            refreshRows()
+        }
+
+        private fun toggleOperation(operationId: String) {
+            if (operationId in collapsedOperationIds) {
+                collapsedOperationIds -= operationId
+            } else {
+                collapsedOperationIds += operationId
+            }
+            refreshRows()
+        }
+
+        private fun navigateToUsage(item: CollectionUsageResultItem) {
+            val filePath = FileUtil.toSystemIndependentName(item.filePath)
+            val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath)
+            if (virtualFile == null) {
+                showError("파일을 열 수 없음", item.filePath)
+                return
+            }
+
+            popup?.cancel()
+            OpenFileDescriptor(project, virtualFile, maxOf(0, item.startOffset)).navigate(true)
+        }
+
+        private fun selectFirstUsageRow() {
+            val index = (0 until list.model.size).firstOrNull { list.model.getElementAt(it) is PopupRow.Usage } ?: -1
+            list.selectedIndex = index
+        }
+
+        private fun updatePreview(row: PopupRow.Usage?) {
+            if (row == null) {
+                previewTitle.text = "미리보기"
+                previewEditor.updateText("표시할 결과가 없습니다.", 1, 0, 0, UsagePopupColors.highlightBackground)
+                return
+            }
+
+            val item = row.item
+            previewTitle.text = "${File(item.filePath).name} · ${item.previewStartLine}줄부터 · ${item.operationDisplayName}"
+            previewEditor.updateText(
+                item.previewText,
+                item.previewStartLine,
+                item.previewHighlightStart,
+                item.previewHighlightLength,
+                UsagePopupColors.highlightForKind(item.kind)
             )
-            return
         }
-
-        popup.cancel()
-        OpenFileDescriptor(project, virtualFile, maxOf(0, item.startOffset)).navigate(true)
-    }
-
-    private fun selectFirstUsageRow(list: JBList<PopupRow>) {
-        val index = (0 until list.model.size).firstOrNull { list.model.getElementAt(it) is PopupRow.Usage } ?: return
-        list.selectedIndex = index
-    }
-
-    private fun createPreviewPane(): JTextPane {
-        val pane = JTextPane()
-        pane.isEditable = false
-        pane.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        pane.border = EmptyBorder(8, 10, 8, 10)
-        return pane
-    }
-
-    private fun updatePreview(
-        title: JBLabel,
-        previewPane: JTextPane,
-        row: PopupRow.Usage?
-    ) {
-        if (row == null) {
-            title.text = "미리보기"
-            previewPane.text = "표시할 결과가 없습니다."
-            return
-        }
-
-        val item = row.item
-        title.text = "${File(item.filePath).name}  (${item.previewStartLine}줄부터)"
-        val document = DefaultStyledDocument()
-        val regular = SimpleAttributeSet()
-        StyleConstants.setFontFamily(regular, Font.MONOSPACED)
-        StyleConstants.setFontSize(regular, 12)
-        document.insertString(0, item.previewText, regular)
-
-        if (item.previewHighlightLength > 0 && item.previewHighlightStart < item.previewText.length) {
-            val highlight = SimpleAttributeSet()
-            StyleConstants.setFontFamily(highlight, Font.MONOSPACED)
-            StyleConstants.setFontSize(highlight, 12)
-            StyleConstants.setBold(highlight, true)
-            StyleConstants.setForeground(highlight, java.awt.Color.WHITE)
-            StyleConstants.setBackground(highlight, java.awt.Color(88, 118, 169))
-            val highlightLength = minOf(item.previewHighlightLength, item.previewText.length - item.previewHighlightStart)
-            document.setCharacterAttributes(item.previewHighlightStart, highlightLength, highlight, false)
-        }
-
-        previewPane.document = document
-        previewPane.caretPosition = maxOf(0, minOf(item.previewHighlightStart, item.previewText.length))
-    }
-
-    private fun createUsageCategories(): List<UsageCategory> {
-        return listOf(
-            UsageCategory("structure", "원소 추가/삭제") { it.kind == "CollectionStructureUsage" },
-            UsageCategory("assignment", "컬렉션 대입") { it.kind == "CollectionAssignment" },
-            UsageCategory("write", "내용물 수정") { it.kind == "ElementWrite" },
-            UsageCategory("reference", "레퍼런스 넘기기") { it.kind == "ElementAlias" || it.kind == "ElementEscape" }
-        )
     }
 
     private data class UsageCategory(
         val id: String,
         val title: String,
+        val color: Color,
+        val icon: Icon,
+        val matches: (CollectionUsageResultItem) -> Boolean
+    )
+
+    private data class UsageOperationFilter(
+        val id: String,
+        val title: String,
+        val color: Color,
+        val icon: Icon,
         val matches: (CollectionUsageResultItem) -> Boolean
     )
 
     private sealed class PopupRow {
-        data class Header(val title: String, val count: Int) : PopupRow()
+        data class CategoryHeader(
+            val category: UsageCategory,
+            val count: Int,
+            val collapsed: Boolean
+        ) : PopupRow()
+
+        data class OperationHeader(
+            val id: String,
+            val title: String,
+            val count: Int,
+            val color: Color,
+            val icon: Icon?,
+            val collapsed: Boolean
+        ) : PopupRow()
+
         data class Usage(val item: CollectionUsageResultItem) : PopupRow()
     }
 
-    private class CollectionUsagePopupRenderer : ColoredListCellRenderer<PopupRow>() {
+    private object UsagePopupColors {
+        val panelBackground: Color = JBColor(Color(0xF4F6F8), Color(0x1F2329))
+        val previewHeaderBackground: Color = JBColor(Color(0xEEF2F5), Color(0x252A31))
+        val detailFilterBackground: Color = JBColor(Color(0xEEF2F5), Color(0x22272E))
+        val listBackground: Color = JBColor(Color(0xFAFBFC), Color(0x171A1F))
+        val gutterBackground: Color = JBColor(Color(0xF1F4F7), Color(0x20242A))
+        val border: Color = JBColor(Color(0xD7DDE3), Color(0x3A4049))
+        val primaryForeground: Color = JBColor(Color(0x1F2328), Color(0xDDE6F3))
+        val selectedForeground: Color = JBColor(Color.WHITE, Color(0xF4F8FF))
+        val mutedForeground: Color = JBColor(Color(0x68717D), Color(0x8C96A3))
+        val codeForeground: Color = JBColor(Color(0x3E4652), Color(0xAAB4C2))
+        val selectionBackground: Color = JBColor(Color(0xD8E8FF), Color(0x334F78))
+        val highlightBackground: Color = JBColor(Color(0xFFE7A3), Color(0x405C88))
+        val structureUsage: Color = JBColor(Color(0x227A46), Color(0x72D39B))
+        val assignmentUsage: Color = JBColor(Color(0x9A6512), Color(0xE4B363))
+        val elementWrite: Color = JBColor(Color(0xB13B3B), Color(0xF08A8A))
+        val referenceUsage: Color = JBColor(Color(0x2F65B0), Color(0x8BB8FF))
+        val removeOperation: Color = JBColor(Color(0xA0442C), Color(0xF0A06A))
+        val clearOperation: Color = JBColor(Color(0xB13B3B), Color(0xFF8F8F))
+        val setOperation: Color = JBColor(Color(0x7B5BB8), Color(0xC2A4FF))
+        val reorderOperation: Color = JBColor(Color(0x247A8A), Color(0x76D6E8))
+        val setMathOperation: Color = JBColor(Color(0x3569A8), Color(0x93C5FD))
+
+        fun colorForKind(kind: String): Color {
+            return when (kind) {
+                "CollectionStructureUsage" -> structureUsage
+                "CollectionAssignment" -> assignmentUsage
+                "ElementWrite" -> elementWrite
+                "ElementAlias", "ElementEscape" -> referenceUsage
+                else -> mutedForeground
+            }
+        }
+
+        fun highlightForKind(kind: String): Color {
+            return when (kind) {
+                "CollectionStructureUsage" -> JBColor(Color(0xB7F1CD), Color(0x295A3B))
+                "CollectionAssignment" -> JBColor(Color(0xFFE2A3), Color(0x604A24))
+                "ElementWrite" -> JBColor(Color(0xFFD2D2), Color(0x663638))
+                "ElementAlias", "ElementEscape" -> JBColor(Color(0xCFE2FF), Color(0x334F78))
+                else -> highlightBackground
+            }
+        }
+    }
+
+    private class FilterChipButton(
+        text: String,
+        private val accentColor: Color,
+        private val prominent: Boolean
+    ) : JToggleButton(text) {
+        init {
+            isOpaque = false
+            isContentAreaFilled = false
+            isBorderPainted = false
+            isFocusPainted = false
+            margin = Insets(0, 0, 0, 0)
+            iconTextGap = JBUI.scale(if (prominent) 4 else 3)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            border = JBUI.Borders.empty(
+                if (prominent) 1 else 0,
+                if (prominent) 6 else 5,
+                if (prominent) 1 else 0,
+                if (prominent) 6 else 5
+            )
+            foreground = if (prominent) UsagePopupColors.primaryForeground else UsagePopupColors.mutedForeground
+            font = font.deriveFont(
+                if (prominent) Font.BOLD else Font.PLAIN,
+                font.size2D + if (prominent) -0.5f else -1.5f
+            )
+        }
+
+        override fun paintComponent(g: Graphics) {
+            val graphics = g.create() as Graphics2D
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+            val radius = JBUI.scale(if (prominent) 11 else 9)
+            val fill = when {
+                !isEnabled -> transparent(UsagePopupColors.border, 38)
+                isSelected -> transparent(accentColor, if (prominent) 58 else 34)
+                model.isRollover -> transparent(UsagePopupColors.border, 42)
+                prominent -> transparent(UsagePopupColors.border, 24)
+                else -> transparent(UsagePopupColors.border, 14)
+            }
+            val outline = when {
+                !isEnabled -> transparent(UsagePopupColors.border, 70)
+                isSelected -> transparent(accentColor, if (prominent) 190 else 145)
+                else -> transparent(UsagePopupColors.border, 95)
+            }
+
+            graphics.color = fill
+            graphics.fillRoundRect(0, 0, width - 1, height - 1, radius, radius)
+            graphics.color = outline
+            graphics.drawRoundRect(0, 0, width - 1, height - 1, radius, radius)
+            graphics.dispose()
+
+            foreground = when {
+                !isEnabled -> UsagePopupColors.mutedForeground
+                isSelected && !prominent -> UsagePopupColors.primaryForeground
+                else -> if (prominent) UsagePopupColors.primaryForeground else UsagePopupColors.mutedForeground
+            }
+            super.paintComponent(g)
+        }
+
+        private fun transparent(color: Color, alpha: Int): Color {
+            return Color(color.red, color.green, color.blue, alpha)
+        }
+    }
+
+    private class CollectionUsagePreviewEditor(project: Project, fileType: FileType) : JPanel(BorderLayout()) {
+        private val document = EditorFactory.getInstance().createDocument("")
+        private val editor = EditorFactory.getInstance().createEditor(document, project, fileType, true) as EditorEx
+        private val lineNumberGutter = PreviewLineNumberGutter(editor)
+        private var released = false
+
+        init {
+            background = UsagePopupColors.listBackground
+            border = JBUI.Borders.empty()
+
+            editor.settings.isLineNumbersShown = false
+            editor.settings.isFoldingOutlineShown = false
+            editor.settings.isRightMarginShown = false
+            editor.settings.isUseSoftWraps = false
+            editor.settings.additionalLinesCount = 0
+            editor.settings.additionalColumnsCount = 3
+            editor.scrollPane.border = JBUI.Borders.empty()
+            editor.scrollPane.setRowHeaderView(lineNumberGutter)
+            editor.component.background = UsagePopupColors.listBackground
+            editor.contentComponent.background = UsagePopupColors.listBackground
+
+            add(editor.component, BorderLayout.CENTER)
+        }
+
+        fun updateText(
+            text: String,
+            previewStartLine: Int,
+            highlightStart: Int,
+            highlightLength: Int,
+            highlightBackground: Color
+        ) {
+            ApplicationManager.getApplication().runWriteAction {
+                document.setText(text)
+            }
+
+            lineNumberGutter.startLine = maxOf(1, previewStartLine)
+            lineNumberGutter.revalidate()
+            lineNumberGutter.repaint()
+            editor.markupModel.removeAllHighlighters()
+
+            if (highlightLength > 0 && highlightStart < text.length) {
+                val start = maxOf(0, highlightStart)
+                val end = minOf(text.length, start + highlightLength)
+                if (end > start) {
+                    editor.markupModel.addRangeHighlighter(
+                        start,
+                        end,
+                        HighlighterLayer.SELECTION - 1,
+                        TextAttributes(null, highlightBackground, null, null, Font.BOLD),
+                        HighlighterTargetArea.EXACT_RANGE
+                    )
+                    editor.caretModel.moveToOffset(start)
+                    editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
+                    scrollHorizontallyToOffset(start)
+                }
+            }
+        }
+
+        private fun scrollHorizontallyToOffset(offset: Int) {
+            val visualPosition = editor.offsetToVisualPosition(offset)
+            val targetPoint = editor.visualPositionToXY(visualPosition)
+            val horizontalScrollBar = editor.scrollPane.horizontalScrollBar
+            val contextPadding = JBUI.scale(96)
+            val maxScroll = horizontalScrollBar.maximum - horizontalScrollBar.visibleAmount
+            horizontalScrollBar.value = maxOf(0, minOf(maxScroll, targetPoint.x - contextPadding))
+        }
+
+        fun release() {
+            if (released) {
+                return
+            }
+
+            released = true
+            EditorFactory.getInstance().releaseEditor(editor)
+        }
+    }
+
+    private class PreviewLineNumberGutter(private val editor: EditorEx) : JComponent() {
+        var startLine: Int = 1
+
+        override fun getPreferredSize(): Dimension {
+            val maxLineNumber = startLine + maxOf(0, editor.document.lineCount - 1)
+            val metrics = getFontMetrics(editor.contentComponent.font)
+            val width = metrics.stringWidth(maxLineNumber.toString()) + JBUI.scale(14)
+            return Dimension(width, editor.contentComponent.preferredSize.height)
+        }
+
+        override fun paintComponent(g: Graphics) {
+            super.paintComponent(g)
+            g.color = UsagePopupColors.gutterBackground
+            g.fillRect(0, 0, width, height)
+            g.font = editor.contentComponent.font
+            g.color = UsagePopupColors.mutedForeground
+
+            val clip = g.clipBounds
+            val firstLine = maxOf(0, editor.xyToVisualPosition(Point(0, clip.y)).line)
+            val lastLine = minOf(
+                maxOf(0, editor.document.lineCount - 1),
+                editor.xyToVisualPosition(Point(0, clip.y + clip.height)).line + 1
+            )
+            val metrics = g.fontMetrics
+            val rightPadding = JBUI.scale(6)
+
+            for (visualLine in firstLine..lastLine) {
+                val lineNumber = (startLine + visualLine).toString()
+                val y = editor.visualLineToY(visualLine) + ((editor.lineHeight - metrics.height) / 2) + metrics.ascent
+                g.drawString(lineNumber, width - rightPadding - metrics.stringWidth(lineNumber), y)
+            }
+        }
+    }
+
+    private class CollectionUsagePopupRenderer(
+        var targetName: String
+    ) : ColoredListCellRenderer<PopupRow>() {
         override fun customizeCellRenderer(
             list: JList<out PopupRow>,
             value: PopupRow,
@@ -371,17 +945,169 @@ class FindCollectionUsagesFrontendAction : AnAction(
             selected: Boolean,
             hasFocus: Boolean
         ) {
+            iconTextGap = JBUI.scale(3)
+            background = when {
+                selected -> list.selectionBackground
+                value is PopupRow.CategoryHeader -> UsagePopupColors.previewHeaderBackground
+                value is PopupRow.OperationHeader -> UsagePopupColors.detailFilterBackground
+                else -> UsagePopupColors.listBackground
+            }
+
             when (value) {
-                is PopupRow.Header -> {
-                    append("${value.title}  ${value.count}", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
+                is PopupRow.CategoryHeader -> {
+                    icon = value.category.icon
+                    border = JBUI.Borders.empty(6, 6, 4, 10)
+                    val primary = if (selected) list.selectionForeground else UsagePopupColors.primaryForeground
+                    val muted = if (selected) list.selectionForeground else UsagePopupColors.mutedForeground
+                    append(collapseMarker(value.collapsed) + " ", SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, muted))
+                    append(
+                        "${value.category.title}  ${value.count}",
+                        SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, primary)
+                    )
+                    if (value.collapsed) {
+                        append("  접힘", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, muted))
+                    }
+                }
+                is PopupRow.OperationHeader -> {
+                    icon = null
+                    border = JBUI.Borders.empty(3, 28, 2, 10)
+                    val muted = if (selected) list.selectionForeground else UsagePopupColors.mutedForeground
+                    val accent = if (selected) list.selectionForeground else value.color
+                    append(collapseMarker(value.collapsed) + " ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, muted))
+                    append(
+                        "${value.title}  ${value.count}",
+                        SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, accent)
+                    )
+                    if (value.collapsed) {
+                        append("  접힘", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, muted))
+                    }
                 }
                 is PopupRow.Usage -> {
-                    append("  (${value.item.line}:${value.item.column}) ", SimpleTextAttributes.GRAY_ATTRIBUTES)
-                    append(File(value.item.filePath).name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    append(value.item.text, SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    border = JBUI.Borders.empty(2, 44, 2, 10)
+                    icon = null
+
+                    val primary = if (selected) list.selectionForeground else UsagePopupColors.primaryForeground
+                    val muted = if (selected) list.selectionForeground else UsagePopupColors.mutedForeground
+                    val code = if (selected) list.selectionForeground else UsagePopupColors.codeForeground
+
+                    append("(${value.item.line}:${value.item.column}) ", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, muted))
+                    append(File(value.item.filePath).name, SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, primary))
+                    append("  ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, muted))
+                    appendHighlightedCode(
+                        value.item.text,
+                        SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, code),
+                        SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, if (selected) primary else UsagePopupColors.colorForKind(value.item.kind))
+                    )
                 }
             }
+        }
+
+        private fun collapseMarker(collapsed: Boolean): String {
+            return if (collapsed) "▸" else "▾"
+        }
+
+        private fun appendHighlightedCode(
+            text: String,
+            regularAttributes: SimpleTextAttributes,
+            targetAttributes: SimpleTextAttributes
+        ) {
+            val targetIndex = if (targetName.isNotEmpty()) text.indexOf(targetName) else -1
+            if (targetIndex < 0) {
+                append(text, regularAttributes)
+                return
+            }
+
+            if (targetIndex > 0) {
+                append(text.substring(0, targetIndex), regularAttributes)
+            }
+
+            append(text.substring(targetIndex, targetIndex + targetName.length), targetAttributes)
+
+            val afterTarget = targetIndex + targetName.length
+            if (afterTarget < text.length) {
+                append(text.substring(afterTarget), regularAttributes)
+            }
+        }
+    }
+
+    companion object {
+        private const val MESSAGE_CARD = "message"
+        private const val RESULTS_CARD = "results"
+
+        private fun createUsageCategories(): List<UsageCategory> {
+            return listOf(
+                UsageCategory("structure", "원소 추가/삭제", UsagePopupColors.structureUsage, AllIcons.General.Add) {
+                    it.kind == "CollectionStructureUsage"
+                },
+                UsageCategory("assignment", "컬렉션 대입", UsagePopupColors.assignmentUsage, AllIcons.Actions.Replace) {
+                    it.kind == "CollectionAssignment"
+                },
+                UsageCategory("write", "내용물 수정", UsagePopupColors.elementWrite, AllIcons.Actions.Edit) {
+                    it.kind == "ElementWrite"
+                },
+                UsageCategory("reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
+                    it.kind == "ElementAlias" || it.kind == "ElementEscape"
+                }
+            )
+        }
+
+        private fun createUsageOperationFilters(): List<UsageOperationFilter> {
+            return listOf(
+                UsageOperationFilter("element-add", "원소 추가", UsagePopupColors.structureUsage, AllIcons.General.Add) {
+                    it.operationKind == "ElementAdd"
+                },
+                UsageOperationFilter("element-remove", "원소 삭제", UsagePopupColors.removeOperation, AllIcons.General.Remove) {
+                    it.operationKind == "ElementRemove"
+                },
+                UsageOperationFilter("element-clear", "전체 삭제", UsagePopupColors.clearOperation, AllIcons.General.Remove) {
+                    it.operationKind == "ElementClear"
+                },
+                UsageOperationFilter("element-set", "인덱서 설정/교체", UsagePopupColors.setOperation, AllIcons.Actions.Replace) {
+                    it.operationKind == "ElementSet"
+                },
+                UsageOperationFilter("collection-reorder", "순서 변경", UsagePopupColors.reorderOperation, AllIcons.Actions.Replace) {
+                    it.operationKind == "CollectionReorder"
+                },
+                UsageOperationFilter("set-operation", "집합 연산", UsagePopupColors.setMathOperation, AllIcons.Actions.Replace) {
+                    it.operationKind == "SetOperation"
+                },
+                UsageOperationFilter("collection-assignment", "컬렉션 대입", UsagePopupColors.assignmentUsage, AllIcons.Actions.Replace) {
+                    it.operationKind == "CollectionAssignment"
+                },
+                UsageOperationFilter("element-content-write", "내용물 수정", UsagePopupColors.elementWrite, AllIcons.Actions.Edit) {
+                    it.operationKind == "ElementContentWrite"
+                },
+                UsageOperationFilter("element-reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
+                    it.operationKind == "ElementReference"
+                }
+            )
+        }
+
+        private fun iconForKind(kind: String): Icon? {
+            return when (kind) {
+                "CollectionStructureUsage" -> AllIcons.General.Add
+                "CollectionAssignment" -> AllIcons.Actions.Replace
+                "ElementWrite" -> AllIcons.Actions.Edit
+                "ElementAlias", "ElementEscape" -> AllIcons.Actions.Forward
+                else -> null
+            }
+        }
+
+        private fun formatScope(scope: String): String {
+            return when (scope) {
+                "CurrentFile" -> "현재 파일"
+                "DeclaringProject" -> "선언 프로젝트"
+                else -> scope
+            }
+        }
+
+        private fun escapeHtml(text: String): String {
+            return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("\n", "<br>")
         }
     }
 }

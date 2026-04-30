@@ -7,19 +7,40 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
     internal static class CollectionUsagePreviewBuilder
     {
         [NotNull]
+        public static CollectionUsagePreviewSource CreateSource([NotNull] string sourceText)
+        {
+            return new CollectionUsagePreviewSource(sourceText);
+        }
+
+        [NotNull]
         public static CollectionUsagePreview Build(
             [NotNull] string sourceText,
             int startOffset,
             int length,
             int contextLineCount)
         {
-            if (sourceText == null) throw new ArgumentNullException(nameof(sourceText));
+            return CreateSource(sourceText).Build(startOffset, length, contextLineCount);
+        }
+    }
 
+    internal sealed class CollectionUsagePreviewSource
+    {
+        [NotNull] private readonly string sourceText;
+        [NotNull] private readonly List<int> lineStarts;
+
+        public CollectionUsagePreviewSource([NotNull] string sourceText)
+        {
+            this.sourceText = sourceText ?? throw new ArgumentNullException(nameof(sourceText));
+            lineStarts = GetLineStarts(sourceText);
+        }
+
+        [NotNull]
+        public CollectionUsagePreview Build(int startOffset, int length, int contextLineCount)
+        {
             if (sourceText.Length == 0)
                 return new CollectionUsagePreview(string.Empty, 1, 0, 0);
 
             var normalizedOffset = Math.Max(0, Math.Min(startOffset, sourceText.Length - 1));
-            var lineStarts = GetLineStarts(sourceText);
             var occurrenceLineIndex = GetLineIndex(lineStarts, normalizedOffset);
             var startLineIndex = Math.Max(0, occurrenceLineIndex - contextLineCount);
             var endLineIndex = Math.Min(lineStarts.Count - 1, occurrenceLineIndex + contextLineCount);

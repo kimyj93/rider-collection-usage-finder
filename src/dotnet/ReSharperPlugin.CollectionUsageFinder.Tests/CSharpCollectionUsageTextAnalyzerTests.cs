@@ -30,6 +30,18 @@ class C
                 CollectionUsageKind.CollectionStructureUsage,
                 CollectionUsageKind.CollectionStructureUsage
             }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ElementAdd,
+                CollectionUsageOperationKind.ElementRemove,
+                CollectionUsageOperationKind.ElementClear
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationName), Is.EqualTo(new[]
+            {
+                "Add",
+                "RemoveAt",
+                "Clear"
+            }));
         }
 
         [Test]
@@ -70,6 +82,9 @@ class C
                 CollectionUsageKind.CollectionAssignment,
                 CollectionUsageKind.CollectionAssignment
             }));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.CollectionAssignment));
             Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
             {
                 "list = other;",
@@ -148,6 +163,14 @@ class C
             Assert.That(
                 occurrences.Select(static occurrence => occurrence.Kind),
                 Is.All.EqualTo(CollectionUsageKind.CollectionStructureUsage));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ElementRemove,
+                CollectionUsageOperationKind.SetOperation,
+                CollectionUsageOperationKind.SetOperation,
+                CollectionUsageOperationKind.SetOperation,
+                CollectionUsageOperationKind.SetOperation
+            }));
         }
 
         [Test]
@@ -235,6 +258,8 @@ class C
 }", "list");
 
             Assert.That(occurrences.Single().Kind, Is.EqualTo(CollectionUsageKind.CollectionStructureUsage));
+            Assert.That(occurrences.Single().OperationKind, Is.EqualTo(CollectionUsageOperationKind.ElementSet));
+            Assert.That(occurrences.Single().OperationName, Is.EqualTo("IndexerSet"));
             Assert.That(occurrences.Single().Text, Is.EqualTo("list[0] = item;"));
             Assert.That(occurrences.Single().Length, Is.EqualTo("list[0] =".Length));
         }
@@ -257,6 +282,9 @@ class C
                 CollectionUsageKind.ElementWrite,
                 CollectionUsageKind.ElementWrite
             }));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.ElementContentWrite));
         }
 
         [Test]
@@ -349,6 +377,11 @@ class C
             {
                 CollectionUsageKind.ElementAlias,
                 CollectionUsageKind.ElementWrite
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ElementReference,
+                CollectionUsageOperationKind.ElementContentWrite
             }));
         }
 

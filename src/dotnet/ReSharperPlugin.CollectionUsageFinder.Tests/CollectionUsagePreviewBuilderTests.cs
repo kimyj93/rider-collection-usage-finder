@@ -43,5 +43,28 @@ namespace ReSharperPlugin.CollectionUsageFinder.Tests
             Assert.That(preview.HighlightStart, Is.EqualTo(0));
             Assert.That(preview.HighlightLength, Is.EqualTo("target".Length));
         }
+
+        [Test]
+        public void CreateSource_ReusesLineMapForMultiplePreviews()
+        {
+            var source = string.Join("\n", new[]
+            {
+                "line 1",
+                "first target",
+                "line 3",
+                "line 4",
+                "second target",
+                "line 6"
+            });
+            var previewSource = CollectionUsagePreviewBuilder.CreateSource(source);
+
+            var first = previewSource.Build(source.IndexOf("first", System.StringComparison.Ordinal), "first".Length, 1);
+            var second = previewSource.Build(source.IndexOf("second", System.StringComparison.Ordinal), "second".Length, 1);
+
+            Assert.That(first.StartLine, Is.EqualTo(1));
+            Assert.That(first.Text, Does.Contain("first target"));
+            Assert.That(second.StartLine, Is.EqualTo(4));
+            Assert.That(second.Text, Does.Contain("second target"));
+        }
     }
 }

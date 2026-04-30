@@ -6,6 +6,8 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
     {
         public CollectionUsageOccurrence(
             CollectionUsageKind kind,
+            CollectionUsageOperationKind operationKind,
+            [NotNull] string operationName,
             int startOffset,
             int length,
             int line,
@@ -13,6 +15,8 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             [NotNull] string text)
         {
             Kind = kind;
+            OperationKind = operationKind;
+            OperationName = operationName;
             StartOffset = startOffset;
             Length = length;
             Line = line;
@@ -21,6 +25,11 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         }
 
         public CollectionUsageKind Kind { get; }
+
+        public CollectionUsageOperationKind OperationKind { get; }
+
+        [NotNull]
+        public string OperationName { get; }
 
         public int StartOffset { get; }
 
