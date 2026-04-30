@@ -346,6 +346,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
     private fun createUsageCategories(): List<UsageCategory> {
         return listOf(
             UsageCategory("structure", "원소 추가/삭제") { it.kind == "CollectionStructureUsage" },
+            UsageCategory("assignment", "컬렉션 대입") { it.kind == "CollectionAssignment" },
             UsageCategory("write", "내용물 수정") { it.kind == "ElementWrite" },
             UsageCategory("reference", "레퍼런스 넘기기") { it.kind == "ElementAlias" || it.kind == "ElementEscape" }
         )

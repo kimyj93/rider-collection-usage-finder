@@ -70,6 +70,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             var targetPattern = Regex.Escape(targetName);
             var occurrences = new List<CollectionUsageOccurrence>();
 
+            CollectWholeCollectionAssignments(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
             CollectStructuralUsages(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
             CollectDirectElementWrites(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
             CollectBalancedIndexerUsages(sourceText, sanitizedText, targetPattern, isTargetReferenceAllowed, occurrences);
@@ -82,6 +83,34 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 .Select(static group => group.First())
                 .OrderBy(static occurrence => occurrence.StartOffset)
                 .ToArray();
+        }
+
+        private static void CollectWholeCollectionAssignments(
+            string sourceText,
+            string sanitizedText,
+            string targetPattern,
+            Func<int, bool> isTargetReferenceAllowed,
+            ICollection<CollectionUsageOccurrence> occurrences)
+        {
+            foreach (Match match in Regex.Matches(sanitizedText, $@"\b{targetPattern}\b", RegexOptions.Multiline))
+            {
+                if (!isTargetReferenceAllowed(match.Index))
+                    continue;
+
+                if (LooksLikeDeclarationTarget(sanitizedText, match.Index))
+                    continue;
+
+                var operatorOffset = SkipWhitespace(sanitizedText, match.Index + match.Length);
+                if (!TryGetCollectionAssignmentOperatorLength(sanitizedText, operatorOffset, out var operatorLength))
+                    continue;
+
+                AddOccurrence(
+                    sourceText,
+                    match.Index,
+                    operatorOffset + operatorLength - match.Index,
+                    CollectionUsageKind.CollectionAssignment,
+                    occurrences);
+            }
         }
 
         private static void CollectStructuralUsages(
@@ -506,6 +535,63 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             }
 
             return true;
+        }
+
+        private static bool TryGetCollectionAssignmentOperatorLength(string text, int offset, out int operatorLength)
+        {
+            operatorLength = 0;
+            if (offset >= text.Length)
+                return false;
+
+            if (StartsWith(text, offset, "??="))
+            {
+                operatorLength = 3;
+                return true;
+            }
+
+            if (text[offset] == '=' && (offset + 1 >= text.Length || text[offset + 1] != '=' && text[offset + 1] != '>'))
+            {
+                operatorLength = 1;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool LooksLikeDeclarationTarget(string text, int targetOffset)
+        {
+            var previous = FindPreviousNonWhitespace(text, targetOffset - 1);
+            if (previous < 0)
+                return false;
+
+            var previousCharacter = text[previous];
+            if (previousCharacter == '.')
+                return false;
+
+            if (IsIdentifierPart(previousCharacter))
+            {
+                var previousIdentifier = GetIdentifierEndingAt(text, previous);
+                return previousIdentifier != "else" && previousIdentifier != "do";
+            }
+
+            return previousCharacter == '>' || previousCharacter == ']' || previousCharacter == '?';
+        }
+
+        private static int FindPreviousNonWhitespace(string text, int offset)
+        {
+            var current = offset;
+            while (current >= 0 && char.IsWhiteSpace(text[current]))
+                current--;
+            return current;
+        }
+
+        private static string GetIdentifierEndingAt(string text, int endOffset)
+        {
+            var startOffset = endOffset;
+            while (startOffset > 0 && IsIdentifierPart(text[startOffset - 1]))
+                startOffset--;
+
+            return text.Substring(startOffset, endOffset - startOffset + 1);
         }
 
         private static int SkipWhitespace(string text, int offset)

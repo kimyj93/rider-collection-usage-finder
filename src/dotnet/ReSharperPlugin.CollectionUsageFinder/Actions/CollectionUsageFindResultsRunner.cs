@@ -664,6 +664,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 case CollectionUsageKind.CollectionStructureUsage:
                     return "원소 추가/삭제";
 
+                case CollectionUsageKind.CollectionAssignment:
+                    return "컬렉션 대입";
+
                 case CollectionUsageKind.ElementWrite:
                     return "내용물 수정";
 

@@ -7,6 +7,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         public static readonly OccurrenceKind CollectionStructureUsage =
             OccurrenceKind.CreateSemantic("Collection Structure Usage", true);
 
+        public static readonly OccurrenceKind CollectionAssignment =
+            OccurrenceKind.CreateSemantic("Collection Assignment", true);
+
         public static readonly OccurrenceKind ElementWrite =
             OccurrenceKind.CreateSemantic("Element Write", true);
 
@@ -22,6 +25,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             {
                 case CollectionUsageKind.CollectionStructureUsage:
                     return CollectionStructureUsage;
+
+                case CollectionUsageKind.CollectionAssignment:
+                    return CollectionAssignment;
 
                 case CollectionUsageKind.ElementWrite:
                     return ElementWrite;
@@ -43,6 +49,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             {
                 case CollectionUsageKind.CollectionStructureUsage:
                     return "Collection Structure Usage";
+
+                case CollectionUsageKind.CollectionAssignment:
+                    return "Collection Assignment";
 
                 case CollectionUsageKind.ElementWrite:
                     return "Element Write";

@@ -35,6 +35,7 @@ The action is registered with the Find Usages menu groups, not the Tools menu:
 Results open in a CollectionUsageFinder popup grouped by usage category:
 
 - `원소 추가/삭제`
+- `컬렉션 대입`
 - `내용물 수정`
 - `레퍼런스 넘기기`
 

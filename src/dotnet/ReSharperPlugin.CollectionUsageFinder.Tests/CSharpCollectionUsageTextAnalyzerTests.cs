@@ -49,6 +49,56 @@ class C
         }
 
         [Test]
+        public void Analyze_FindsWholeCollectionAssignments()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    System.Collections.Generic.List<Item> list;
+
+    void M(System.Collections.Generic.List<Item> other, C owner)
+    {
+        list = other;
+        this.list ??= new System.Collections.Generic.List<Item>();
+        owner.list = other;
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionAssignment,
+                CollectionUsageKind.CollectionAssignment,
+                CollectionUsageKind.CollectionAssignment
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "list = other;",
+                "this.list ??= new System.Collections.Generic.List<Item>();",
+                "owner.list = other;"
+            }));
+        }
+
+        [Test]
+        public void Analyze_DoesNotTreatCollectionComparisonsOrDeclarationsAsAssignments()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> other)
+    {
+        System.Collections.Generic.List<Item> list = other;
+
+        if (list == other)
+            return;
+
+        System.Action<System.Collections.Generic.List<Item>> action = list => _ = list.Count;
+    }
+}", "list");
+
+            Assert.That(occurrences, Is.Empty);
+        }
+
+        [Test]
         public void Analyze_FindsDictionaryTryAddAndListRemoveAllAsStructuralUsages()
         {
             var source = @"

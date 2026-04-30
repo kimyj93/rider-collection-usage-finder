@@ -99,7 +99,19 @@ list[i] = replacement;
 array[i] = replacement;
 ```
 
-### 2. Element Write
+### 2. Collection Assignment
+
+Assignments that replace the collection reference itself.
+
+Examples:
+
+```csharp
+list = otherList;
+this.list ??= new List<Item>();
+owner.list = otherList;
+```
+
+### 3. Element Write
 
 Writes to a member of an element that is read from the collection within the same member body.
 
@@ -110,7 +122,7 @@ list[i].Name = string.Empty;
 array[index].IsEnabled = false;
 ```
 
-### 3. Element Alias
+### 4. Element Alias
 
 A local reference or foreach variable is created from a collection element.
 
@@ -125,7 +137,7 @@ foreach (var entry in list)
 }
 ```
 
-### 4. Element Escape
+### 5. Element Escape
 
 A collection element is passed or returned in a way that makes later writes harder to inspect locally.
 
@@ -147,6 +159,7 @@ The plugin should report:
 
 - direct method calls on the target collection for a whitelisted set of known structure-changing members
 - indexer assignment on supported indexed collections
+- whole-collection assignment to the target collection symbol
 
 ### Direct Element Write
 
@@ -236,6 +249,7 @@ Reasons:
 Preferred top-level groups:
 
 - `원소 추가/삭제`
+- `컬렉션 대입`
 - `내용물 수정`
 - `레퍼런스 넘기기`
 
