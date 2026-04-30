@@ -48,6 +48,8 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.RenderingHints
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -59,10 +61,14 @@ import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.JSplitPane
 import javax.swing.JToggleButton
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
+import javax.swing.plaf.basic.BasicSplitPaneDivider
+import javax.swing.plaf.basic.BasicSplitPaneUI
 
 class FindCollectionUsagesFrontendAction : AnAction(
     "Find Collection Usages",
@@ -192,6 +198,10 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private var popup: JBPopup? = null
         private var response: CollectionUsageFindResponse? = null
         private var released = false
+        private var resultsSplitter: JSplitPane? = null
+        private var resultsTopPanel: JComponent? = null
+        private var resultsScrollPane: JScrollPane? = null
+        private var adjustingResultsDivider = false
 
         val focusComponent: JComponent = list
 
@@ -355,6 +365,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             val topPanel = JPanel(BorderLayout())
             topPanel.background = UsagePopupColors.panelBackground
             topPanel.add(filtersStack, BorderLayout.CENTER)
+            resultsTopPanel = topPanel
 
             val resultsPanel = JPanel(BorderLayout())
             resultsPanel.background = UsagePopupColors.panelBackground
@@ -363,6 +374,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             resultsScrollPane.border = JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0)
             resultsScrollPane.viewport.background = UsagePopupColors.listBackground
             resultsPanel.add(resultsScrollPane, BorderLayout.CENTER)
+            this.resultsScrollPane = resultsScrollPane
 
             val previewPanel = JPanel(BorderLayout())
             previewPanel.background = UsagePopupColors.previewHeaderBackground
@@ -375,9 +387,20 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
             val splitter = JSplitPane(JSplitPane.VERTICAL_SPLIT, resultsPanel, previewPanel)
             splitter.resizeWeight = 0.56
+            splitter.isContinuousLayout = true
+            splitter.setUI(CollectionUsageSplitPaneUi())
             splitter.dividerSize = JBUI.scale(4)
             splitter.border = JBUI.Borders.empty()
             splitter.background = UsagePopupColors.panelBackground
+            splitter.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) {
+                clampResultsDivider()
+            }
+            splitter.addComponentListener(object : ComponentAdapter() {
+                override fun componentResized(e: ComponentEvent) {
+                    clampResultsDividerLater()
+                }
+            })
+            resultsSplitter = splitter
 
             val panel = JPanel(BorderLayout())
             panel.background = UsagePopupColors.panelBackground
@@ -486,6 +509,52 @@ class FindCollectionUsagesFrontendAction : AnAction(
             }
             selectFirstUsageRow()
             updatePreview(list.selectedValue as? PopupRow.Usage)
+            clampResultsDividerLater()
+        }
+
+        private fun clampResultsDividerLater() {
+            SwingUtilities.invokeLater {
+                if (!released) {
+                    clampResultsDivider()
+                }
+            }
+        }
+
+        private fun clampResultsDivider() {
+            val splitter = resultsSplitter ?: return
+            if (adjustingResultsDivider || splitter.height <= 0) {
+                return
+            }
+
+            val maxLocation = calculateMaxResultsDividerLocation(splitter)
+            if (splitter.dividerLocation <= maxLocation) {
+                return
+            }
+
+            adjustingResultsDivider = true
+            try {
+                splitter.dividerLocation = maxLocation
+            } finally {
+                adjustingResultsDivider = false
+            }
+        }
+
+        private fun calculateMaxResultsDividerLocation(splitter: JSplitPane): Int {
+            val minimumLocation = splitter.minimumDividerLocation.coerceAtLeast(0)
+            val minimumPreviewHeight = JBUI.scale(210)
+            val maxByPreview = (splitter.height - splitter.dividerSize - minimumPreviewHeight)
+                .coerceAtLeast(minimumLocation)
+
+            val maxByContent = preferredResultsContentHeight().coerceAtLeast(minimumLocation)
+            return minOf(maxByPreview, maxByContent)
+        }
+
+        private fun preferredResultsContentHeight(): Int {
+            val topHeight = resultsTopPanel?.preferredSize?.height ?: 0
+            val scrollPane = resultsScrollPane ?: return topHeight
+            val scrollInsets = scrollPane.insets
+            val listHeight = list.preferredSize.height
+            return topHeight + scrollInsets.top + scrollInsets.bottom + listHeight + JBUI.scale(1)
         }
 
         private fun isSelectedCategory(item: CollectionUsageResultItem): Boolean {
@@ -726,6 +795,12 @@ class FindCollectionUsagesFrontendAction : AnAction(
         val highlightBackground: Color = JBColor(Color(0xFFE7A3), Color(0x405C88))
         val neutralChipFill: Color = JBColor(Color(0xEEF2F5), Color(0x323740))
         val neutralChipOutline: Color = JBColor(Color(0xB9C3CE), Color(0x6B7480))
+        val splitterLine: Color = JBColor(Color(0xC8D0D9), Color(0x3A4048))
+        val splitterHoverLine: Color = JBColor(Color(0xAEB8C3), Color(0x56616D))
+        val splitterActiveLine: Color = JBColor(Color(0x8EA2B8), Color(0x657284))
+        val splitterBackground: Color = JBColor(Color(0xF4F6F8), Color(0x24272E))
+        val splitterHoverBackground: Color = JBColor(Color(0xEEF2F5), Color(0x282C33))
+        val splitterActiveBackground: Color = JBColor(Color(0xE8EEF4), Color(0x2C3139))
         val structureUsage: Color = JBColor(Color(0x227A46), Color(0x72D39B))
         val assignmentUsage: Color = JBColor(Color(0x9A6512), Color(0xE4B363))
         val elementWrite: Color = JBColor(Color(0xB13B3B), Color(0xF08A8A))
@@ -753,6 +828,67 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "ElementWrite" -> JBColor(Color(0xFFD2D2), Color(0x663638))
                 "ElementAlias", "ElementEscape" -> JBColor(Color(0xCFE2FF), Color(0x334F78))
                 else -> highlightBackground
+            }
+        }
+    }
+
+    private class CollectionUsageSplitPaneUi : BasicSplitPaneUI() {
+        override fun createDefaultDivider(): BasicSplitPaneDivider {
+            return CollectionUsageSplitPaneDivider(this)
+        }
+    }
+
+    private class CollectionUsageSplitPaneDivider(ui: BasicSplitPaneUI) : BasicSplitPaneDivider(ui) {
+        private var hovered = false
+        private var pressed = false
+
+        init {
+            border = JBUI.Borders.empty()
+            setBackground(UsagePopupColors.splitterBackground)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) {
+                    hovered = true
+                    repaint()
+                }
+
+                override fun mouseExited(e: MouseEvent) {
+                    hovered = false
+                    repaint()
+                }
+
+                override fun mousePressed(e: MouseEvent) {
+                    pressed = true
+                    repaint()
+                }
+
+                override fun mouseReleased(e: MouseEvent) {
+                    pressed = false
+                    repaint()
+                }
+            })
+        }
+
+        override fun paint(g: Graphics) {
+            val graphics = g.create() as Graphics2D
+            try {
+                val backgroundColor = when {
+                    pressed -> UsagePopupColors.splitterActiveBackground
+                    hovered -> UsagePopupColors.splitterHoverBackground
+                    else -> UsagePopupColors.splitterBackground
+                }
+                val lineColor = when {
+                    pressed -> UsagePopupColors.splitterActiveLine
+                    hovered -> UsagePopupColors.splitterHoverLine
+                    else -> UsagePopupColors.splitterLine
+                }
+
+                graphics.color = backgroundColor
+                graphics.fillRect(0, 0, width, height)
+                graphics.color = lineColor
+                val lineY = height / 2
+                graphics.drawLine(0, lineY, width, lineY)
+            } finally {
+                graphics.dispose()
             }
         }
     }
