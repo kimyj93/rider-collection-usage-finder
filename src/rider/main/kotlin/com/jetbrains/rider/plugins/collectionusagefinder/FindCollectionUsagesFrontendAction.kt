@@ -7,12 +7,6 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ScrollType
-import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.markup.HighlighterLayer
-import com.intellij.openapi.editor.markup.HighlighterTargetArea
-import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.FileType
@@ -32,6 +26,10 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.JBUI
+import com.intellij.psi.PsiManager
+import com.intellij.usageView.UsageInfo
+import com.intellij.usages.UsageViewPresentation
+import com.intellij.usages.impl.UsagePreviewPanel
 import com.jetbrains.rd.framework.RdTaskResult
 import com.jetbrains.rd.ide.model.CollectionUsageFindRequest
 import com.jetbrains.rd.ide.model.CollectionUsageFindResponse
@@ -49,7 +47,6 @@ import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
-import java.awt.Point
 import java.awt.RenderingHints
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
@@ -161,7 +158,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
     private fun JBPopup.showAtCaret(editor: Editor) {
         val caretPoint = editor.visualPositionToXY(editor.caretModel.visualPosition)
-        caretPoint.y += editor.lineHeight
+        val popupHeight = content.preferredSize.height.takeIf { it > 0 } ?: JBUI.scale(660)
+        caretPoint.y -= (popupHeight / 2) - editor.lineHeight
+        caretPoint.x += JBUI.scale(8)
         show(RelativePoint(editor.contentComponent, caretPoint))
     }
 
@@ -181,15 +180,15 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private val list = JBList(listModel)
         private val countLabel = JBLabel()
         private val titleLabel = JBLabel("Collection Usage 검색")
-        private val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
-        private val operationFiltersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
+    private val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
+    private val operationFiltersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
         private val previewTitle = JBLabel("미리보기")
-        private val previewEditor = CollectionUsagePreviewEditor(project, csharpFileType)
+        private val usagePreview = CollectionUsagePreviewPanel(project)
         private val messageIcon = JBLabel()
         private val messageSpinner = AsyncProcessIcon("CollectionUsageFinder")
         private val messageTitle = JBLabel()
         private val messageDescription = JBLabel()
-        private val renderer = CollectionUsagePopupRenderer("")
+        private val renderer = CollectionUsagePopupRenderer("", csharpFileType.icon)
         private var popup: JBPopup? = null
         private var response: CollectionUsageFindResponse? = null
         private var released = false
@@ -285,7 +284,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             }
 
             released = true
-            previewEditor.release()
+            usagePreview.release()
         }
 
         private fun configureList() {
@@ -349,9 +348,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
             val filtersStack = JPanel(BorderLayout())
             filtersStack.background = UsagePopupColors.panelBackground
-            filtersStack.border = JBUI.Borders.empty(0, 8, 1, 8)
+            filtersStack.border = JBUI.Borders.empty(0, 6, 1, 6)
             filtersStack.add(createFilterSection("유형", filtersPanel, prominent = true), BorderLayout.NORTH)
-            filtersStack.add(createFilterSection("상세 동작", operationFiltersPanel, prominent = false), BorderLayout.CENTER)
+            filtersStack.add(createFilterSection("상세", operationFiltersPanel, prominent = false), BorderLayout.CENTER)
 
             val topPanel = JPanel(BorderLayout())
             topPanel.background = UsagePopupColors.panelBackground
@@ -362,6 +361,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             resultsPanel.add(topPanel, BorderLayout.NORTH)
             val resultsScrollPane = ScrollPaneFactory.createScrollPane(list)
             resultsScrollPane.border = JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0)
+            resultsScrollPane.viewport.background = UsagePopupColors.listBackground
             resultsPanel.add(resultsScrollPane, BorderLayout.CENTER)
 
             val previewPanel = JPanel(BorderLayout())
@@ -371,7 +371,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             previewTitle.font = previewTitle.font.deriveFont(Font.BOLD)
             previewTitle.border = JBUI.Borders.empty(7, 12, 5, 12)
             previewPanel.add(previewTitle, BorderLayout.NORTH)
-            previewPanel.add(previewEditor, BorderLayout.CENTER)
+            previewPanel.add(usagePreview, BorderLayout.CENTER)
 
             val splitter = JSplitPane(JSplitPane.VERTICAL_SPLIT, resultsPanel, previewPanel)
             splitter.resizeWeight = 0.56
@@ -392,16 +392,16 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 if (prominent) Font.BOLD else Font.PLAIN,
                 titleLabel.font.size2D + if (prominent) -0.5f else -1.5f
             )
-            titleLabel.border = JBUI.Borders.empty(0, 1, 0, 6)
+            titleLabel.border = JBUI.Borders.empty(0, 0, 0, 4)
 
             val section = JPanel(BorderLayout())
             section.background = if (prominent) UsagePopupColors.panelBackground else UsagePopupColors.detailFilterBackground
             section.border = if (prominent) {
-                JBUI.Borders.empty(0, 1, 0, 1)
+                JBUI.Borders.empty(0, 0, 0, 0)
             } else {
                 JBUI.Borders.compound(
                     JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0),
-                    JBUI.Borders.empty(1, 1, 1, 1)
+                    JBUI.Borders.empty(2, 0, 0, 0)
                 )
             }
 
@@ -415,7 +415,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             filtersPanel.removeAll()
             operationFiltersPanel.removeAll()
             listModel.clear()
-            previewEditor.updateText("표시할 결과가 없습니다.", 1, 0, 0, UsagePopupColors.highlightBackground)
+            usagePreview.clear()
 
             messageTitle.text = title
             messageDescription.text = "<html><div style='width: 540px; text-align: center;'>${escapeHtml(description)}</div></html>"
@@ -666,19 +666,13 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private fun updatePreview(row: PopupRow.Usage?) {
             if (row == null) {
                 previewTitle.text = "미리보기"
-                previewEditor.updateText("표시할 결과가 없습니다.", 1, 0, 0, UsagePopupColors.highlightBackground)
+                usagePreview.clear()
                 return
             }
 
             val item = row.item
-            previewTitle.text = "${File(item.filePath).name} · ${item.previewStartLine}줄부터 · ${item.operationDisplayName}"
-            previewEditor.updateText(
-                item.previewText,
-                item.previewStartLine,
-                item.previewHighlightStart,
-                item.previewHighlightLength,
-                UsagePopupColors.highlightForKind(item.kind)
-            )
+            previewTitle.text = "${File(item.filePath).name} · ${item.line}줄 · ${item.operationDisplayName}"
+            usagePreview.updateUsage(item)
         }
     }
 
@@ -718,18 +712,20 @@ class FindCollectionUsagesFrontendAction : AnAction(
     }
 
     private object UsagePopupColors {
-        val panelBackground: Color = JBColor(Color(0xF4F6F8), Color(0x1F2329))
-        val previewHeaderBackground: Color = JBColor(Color(0xEEF2F5), Color(0x252A31))
-        val detailFilterBackground: Color = JBColor(Color(0xEEF2F5), Color(0x22272E))
-        val listBackground: Color = JBColor(Color(0xFAFBFC), Color(0x171A1F))
-        val gutterBackground: Color = JBColor(Color(0xF1F4F7), Color(0x20242A))
-        val border: Color = JBColor(Color(0xD7DDE3), Color(0x3A4049))
-        val primaryForeground: Color = JBColor(Color(0x1F2328), Color(0xDDE6F3))
+        val panelBackground: Color = JBColor(Color(0xF4F6F8), Color(0x24272E))
+        val previewHeaderBackground: Color = JBColor(Color(0xEEF2F5), Color(0x2B2F36))
+        val detailFilterBackground: Color = JBColor(Color(0xEEF2F5), Color(0x272B32))
+        val listBackground: Color = JBColor(Color(0xFAFBFC), Color(0x25282E))
+        val gutterBackground: Color = JBColor(Color(0xF1F4F7), Color(0x24272E))
+        val border: Color = JBColor(Color(0xD7DDE3), Color(0x3C424B))
+        val primaryForeground: Color = JBColor(Color(0x1F2328), Color(0xD9E0EA))
         val selectedForeground: Color = JBColor(Color.WHITE, Color(0xF4F8FF))
-        val mutedForeground: Color = JBColor(Color(0x68717D), Color(0x8C96A3))
-        val codeForeground: Color = JBColor(Color(0x3E4652), Color(0xAAB4C2))
-        val selectionBackground: Color = JBColor(Color(0xD8E8FF), Color(0x334F78))
+        val mutedForeground: Color = JBColor(Color(0x68717D), Color(0x8F98A6))
+        val codeForeground: Color = JBColor(Color(0x3E4652), Color(0xB7C0CC))
+        val selectionBackground: Color = JBColor(Color(0xD8E8FF), Color(0x2F4D7A))
         val highlightBackground: Color = JBColor(Color(0xFFE7A3), Color(0x405C88))
+        val neutralChipFill: Color = JBColor(Color(0xEEF2F5), Color(0x323740))
+        val neutralChipOutline: Color = JBColor(Color(0xB9C3CE), Color(0x6B7480))
         val structureUsage: Color = JBColor(Color(0x227A46), Color(0x72D39B))
         val assignmentUsage: Color = JBColor(Color(0x9A6512), Color(0xE4B363))
         val elementWrite: Color = JBColor(Color(0xB13B3B), Color(0xF08A8A))
@@ -772,14 +768,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
             isBorderPainted = false
             isFocusPainted = false
             margin = Insets(0, 0, 0, 0)
-            iconTextGap = JBUI.scale(if (prominent) 4 else 3)
+            iconTextGap = JBUI.scale(2)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            border = JBUI.Borders.empty(
-                if (prominent) 1 else 0,
-                if (prominent) 6 else 5,
-                if (prominent) 1 else 0,
-                if (prominent) 6 else 5
-            )
+            border = JBUI.Borders.empty(1, if (prominent) 4 else 3, 1, if (prominent) 4 else 3)
             foreground = if (prominent) UsagePopupColors.primaryForeground else UsagePopupColors.mutedForeground
             font = font.deriveFont(
                 if (prominent) Font.BOLD else Font.PLAIN,
@@ -791,17 +782,19 @@ class FindCollectionUsagesFrontendAction : AnAction(
             val graphics = g.create() as Graphics2D
             graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-            val radius = JBUI.scale(if (prominent) 11 else 9)
+            val radius = JBUI.scale(if (prominent) 8 else 7)
             val fill = when {
                 !isEnabled -> transparent(UsagePopupColors.border, 38)
-                isSelected -> transparent(accentColor, if (prominent) 58 else 34)
+                isSelected && prominent -> UsagePopupColors.neutralChipFill
+                isSelected -> transparent(accentColor, 34)
                 model.isRollover -> transparent(UsagePopupColors.border, 42)
                 prominent -> transparent(UsagePopupColors.border, 24)
                 else -> transparent(UsagePopupColors.border, 14)
             }
             val outline = when {
                 !isEnabled -> transparent(UsagePopupColors.border, 70)
-                isSelected -> transparent(accentColor, if (prominent) 190 else 145)
+                isSelected && prominent -> UsagePopupColors.neutralChipOutline
+                isSelected -> transparent(accentColor, 145)
                 else -> transparent(UsagePopupColors.border, 95)
             }
 
@@ -814,9 +807,22 @@ class FindCollectionUsagesFrontendAction : AnAction(
             foreground = when {
                 !isEnabled -> UsagePopupColors.mutedForeground
                 isSelected && !prominent -> UsagePopupColors.primaryForeground
-                else -> if (prominent) UsagePopupColors.primaryForeground else UsagePopupColors.mutedForeground
+                isSelected && prominent -> UsagePopupColors.primaryForeground
+                else -> UsagePopupColors.mutedForeground
             }
             super.paintComponent(g)
+        }
+
+        override fun setIcon(defaultIcon: Icon?) {
+            super.setIcon(defaultIcon?.let { CompactFilterIcon(it, this) })
+        }
+
+        override fun getPreferredSize(): Dimension {
+            val size = super.getPreferredSize()
+            val iconHeight = icon?.iconHeight ?: 0
+            val contentHeight = maxOf(getFontMetrics(font).height, iconHeight)
+            size.height = contentHeight + JBUI.scale(if (prominent) 4 else 3)
+            return size
         }
 
         private fun transparent(color: Color, alpha: Int): Color {
@@ -824,71 +830,89 @@ class FindCollectionUsagesFrontendAction : AnAction(
         }
     }
 
-    private class CollectionUsagePreviewEditor(project: Project, fileType: FileType) : JPanel(BorderLayout()) {
-        private val document = EditorFactory.getInstance().createDocument("")
-        private val editor = EditorFactory.getInstance().createEditor(document, project, fileType, true) as EditorEx
-        private val lineNumberGutter = PreviewLineNumberGutter(editor)
+    private class CompactFilterIcon(
+        private val delegate: Icon,
+        private val owner: JComponent
+    ) : Icon {
+        override fun getIconWidth(): Int {
+            return targetSize()
+        }
+
+        override fun getIconHeight(): Int {
+            return targetSize()
+        }
+
+        override fun paintIcon(component: Component?, graphics: Graphics, x: Int, y: Int) {
+            val sourceWidth = maxOf(delegate.iconWidth, 1)
+            val sourceHeight = maxOf(delegate.iconHeight, 1)
+            val targetSize = targetSize()
+            val scale = targetSize.toDouble() / maxOf(sourceWidth, sourceHeight)
+            val targetWidth = (sourceWidth * scale).toInt()
+            val targetHeight = (sourceHeight * scale).toInt()
+            val scaledGraphics = graphics.create() as Graphics2D
+
+            scaledGraphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+            scaledGraphics.translate(x + (targetSize - targetWidth) / 2, y + (targetSize - targetHeight) / 2)
+            scaledGraphics.scale(scale, scale)
+            delegate.paintIcon(component, scaledGraphics, 0, 0)
+            scaledGraphics.dispose()
+        }
+
+        private fun targetSize(): Int {
+            val textHeight = owner.getFontMetrics(owner.font).height
+            return maxOf(JBUI.scale(10), textHeight - JBUI.scale(2))
+        }
+    }
+
+    private class CollectionUsagePreviewPanel(
+        private val project: Project
+    ) : JPanel(BorderLayout()) {
+        private val presentation = UsageViewPresentation().apply {
+            setCodeUsages(true)
+            setUsagesString("usage")
+            setTabText("Collection Usage Preview")
+        }
+        private val panel = UsagePreviewPanel(project, presentation)
         private var released = false
 
         init {
             background = UsagePopupColors.listBackground
             border = JBUI.Borders.empty()
-
-            editor.settings.isLineNumbersShown = false
-            editor.settings.isFoldingOutlineShown = false
-            editor.settings.isRightMarginShown = false
-            editor.settings.isUseSoftWraps = false
-            editor.settings.additionalLinesCount = 0
-            editor.settings.additionalColumnsCount = 3
-            editor.scrollPane.border = JBUI.Borders.empty()
-            editor.scrollPane.setRowHeaderView(lineNumberGutter)
-            editor.component.background = UsagePopupColors.listBackground
-            editor.contentComponent.background = UsagePopupColors.listBackground
-
-            add(editor.component, BorderLayout.CENTER)
+            add(panel.createComponent(), BorderLayout.CENTER)
         }
 
-        fun updateText(
-            text: String,
-            previewStartLine: Int,
-            highlightStart: Int,
-            highlightLength: Int,
-            highlightBackground: Color
-        ) {
-            ApplicationManager.getApplication().runWriteAction {
-                document.setText(text)
+        fun clear() {
+            panel.updateLayout(emptyList())
+        }
+
+        fun updateUsage(item: CollectionUsageResultItem) {
+            val usageInfo = createUsageInfo(item)
+            if (usageInfo == null) {
+                clear()
+                return
             }
 
-            lineNumberGutter.startLine = maxOf(1, previewStartLine)
-            lineNumberGutter.revalidate()
-            lineNumberGutter.repaint()
-            editor.markupModel.removeAllHighlighters()
+            panel.updateLayout(listOf(usageInfo))
+        }
 
-            if (highlightLength > 0 && highlightStart < text.length) {
-                val start = maxOf(0, highlightStart)
-                val end = minOf(text.length, start + highlightLength)
-                if (end > start) {
-                    editor.markupModel.addRangeHighlighter(
-                        start,
-                        end,
-                        HighlighterLayer.SELECTION - 1,
-                        TextAttributes(null, highlightBackground, null, null, Font.BOLD),
-                        HighlighterTargetArea.EXACT_RANGE
-                    )
-                    editor.caretModel.moveToOffset(start)
-                    editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
-                    scrollHorizontallyToOffset(start)
+        private fun createUsageInfo(item: CollectionUsageResultItem): UsageInfo? {
+            return ApplicationManager.getApplication().runReadAction<UsageInfo?> {
+                val filePath = FileUtil.toSystemIndependentName(item.filePath)
+                val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath)
+                    ?: LocalFileSystem.getInstance().refreshAndFindFileByPath(filePath)
+                    ?: return@runReadAction null
+
+                val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
+                    ?: return@runReadAction null
+                val textLength = psiFile.textLength
+                val start = item.startOffset.coerceIn(0, textLength)
+                val requestedEnd = item.startOffset + maxOf(item.length, 1)
+                val end = requestedEnd.coerceIn(start, textLength).let {
+                    if (it == start && start < textLength) start + 1 else it
                 }
-            }
-        }
 
-        private fun scrollHorizontallyToOffset(offset: Int) {
-            val visualPosition = editor.offsetToVisualPosition(offset)
-            val targetPoint = editor.visualPositionToXY(visualPosition)
-            val horizontalScrollBar = editor.scrollPane.horizontalScrollBar
-            val contextPadding = JBUI.scale(96)
-            val maxScroll = horizontalScrollBar.maximum - horizontalScrollBar.visibleAmount
-            horizontalScrollBar.value = maxOf(0, minOf(maxScroll, targetPoint.x - contextPadding))
+                UsageInfo(psiFile, start, end)
+            }
         }
 
         fun release() {
@@ -897,46 +921,13 @@ class FindCollectionUsagesFrontendAction : AnAction(
             }
 
             released = true
-            EditorFactory.getInstance().releaseEditor(editor)
-        }
-    }
-
-    private class PreviewLineNumberGutter(private val editor: EditorEx) : JComponent() {
-        var startLine: Int = 1
-
-        override fun getPreferredSize(): Dimension {
-            val maxLineNumber = startLine + maxOf(0, editor.document.lineCount - 1)
-            val metrics = getFontMetrics(editor.contentComponent.font)
-            val width = metrics.stringWidth(maxLineNumber.toString()) + JBUI.scale(14)
-            return Dimension(width, editor.contentComponent.preferredSize.height)
-        }
-
-        override fun paintComponent(g: Graphics) {
-            super.paintComponent(g)
-            g.color = UsagePopupColors.gutterBackground
-            g.fillRect(0, 0, width, height)
-            g.font = editor.contentComponent.font
-            g.color = UsagePopupColors.mutedForeground
-
-            val clip = g.clipBounds
-            val firstLine = maxOf(0, editor.xyToVisualPosition(Point(0, clip.y)).line)
-            val lastLine = minOf(
-                maxOf(0, editor.document.lineCount - 1),
-                editor.xyToVisualPosition(Point(0, clip.y + clip.height)).line + 1
-            )
-            val metrics = g.fontMetrics
-            val rightPadding = JBUI.scale(6)
-
-            for (visualLine in firstLine..lastLine) {
-                val lineNumber = (startLine + visualLine).toString()
-                val y = editor.visualLineToY(visualLine) + ((editor.lineHeight - metrics.height) / 2) + metrics.ascent
-                g.drawString(lineNumber, width - rightPadding - metrics.stringWidth(lineNumber), y)
-            }
+            panel.dispose()
         }
     }
 
     private class CollectionUsagePopupRenderer(
-        var targetName: String
+        var targetName: String,
+        private val fileIcon: Icon?
     ) : ColoredListCellRenderer<PopupRow>() {
         override fun customizeCellRenderer(
             list: JList<out PopupRow>,
@@ -955,7 +946,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
             when (value) {
                 is PopupRow.CategoryHeader -> {
-                    icon = value.category.icon
+                    icon = null
                     border = JBUI.Borders.empty(6, 6, 4, 10)
                     val primary = if (selected) list.selectionForeground else UsagePopupColors.primaryForeground
                     val muted = if (selected) list.selectionForeground else UsagePopupColors.mutedForeground
@@ -984,14 +975,15 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 }
                 is PopupRow.Usage -> {
                     border = JBUI.Borders.empty(2, 44, 2, 10)
-                    icon = null
+                    icon = fileIcon
 
                     val primary = if (selected) list.selectionForeground else UsagePopupColors.primaryForeground
                     val muted = if (selected) list.selectionForeground else UsagePopupColors.mutedForeground
                     val code = if (selected) list.selectionForeground else UsagePopupColors.codeForeground
 
-                    append("(${value.item.line}:${value.item.column}) ", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, muted))
                     append(File(value.item.filePath).name, SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, primary))
+                    append(" ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, muted))
+                    append("(${value.item.line}:${value.item.column})", SimpleTextAttributes(SimpleTextAttributes.STYLE_ITALIC, muted))
                     append("  ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, muted))
                     appendHighlightedCode(
                         value.item.text,
