@@ -48,8 +48,6 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.RenderingHints
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -61,12 +59,10 @@ import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
-import javax.swing.JScrollPane
 import javax.swing.JSplitPane
 import javax.swing.JToggleButton
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
-import javax.swing.SwingUtilities
 import javax.swing.plaf.basic.BasicSplitPaneDivider
 import javax.swing.plaf.basic.BasicSplitPaneUI
 
@@ -198,10 +194,6 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private var popup: JBPopup? = null
         private var response: CollectionUsageFindResponse? = null
         private var released = false
-        private var resultsSplitter: JSplitPane? = null
-        private var resultsTopPanel: JComponent? = null
-        private var resultsScrollPane: JScrollPane? = null
-        private var adjustingResultsDivider = false
 
         val focusComponent: JComponent = list
 
@@ -365,7 +357,6 @@ class FindCollectionUsagesFrontendAction : AnAction(
             val topPanel = JPanel(BorderLayout())
             topPanel.background = UsagePopupColors.panelBackground
             topPanel.add(filtersStack, BorderLayout.CENTER)
-            resultsTopPanel = topPanel
 
             val resultsPanel = JPanel(BorderLayout())
             resultsPanel.background = UsagePopupColors.panelBackground
@@ -374,7 +365,6 @@ class FindCollectionUsagesFrontendAction : AnAction(
             resultsScrollPane.border = JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0)
             resultsScrollPane.viewport.background = UsagePopupColors.listBackground
             resultsPanel.add(resultsScrollPane, BorderLayout.CENTER)
-            this.resultsScrollPane = resultsScrollPane
 
             val previewPanel = JPanel(BorderLayout())
             previewPanel.background = UsagePopupColors.previewHeaderBackground
@@ -392,15 +382,6 @@ class FindCollectionUsagesFrontendAction : AnAction(
             splitter.dividerSize = JBUI.scale(4)
             splitter.border = JBUI.Borders.empty()
             splitter.background = UsagePopupColors.panelBackground
-            splitter.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) {
-                clampResultsDivider()
-            }
-            splitter.addComponentListener(object : ComponentAdapter() {
-                override fun componentResized(e: ComponentEvent) {
-                    clampResultsDividerLater()
-                }
-            })
-            resultsSplitter = splitter
 
             val panel = JPanel(BorderLayout())
             panel.background = UsagePopupColors.panelBackground
@@ -509,52 +490,6 @@ class FindCollectionUsagesFrontendAction : AnAction(
             }
             selectFirstUsageRow()
             updatePreview(list.selectedValue as? PopupRow.Usage)
-            clampResultsDividerLater()
-        }
-
-        private fun clampResultsDividerLater() {
-            SwingUtilities.invokeLater {
-                if (!released) {
-                    clampResultsDivider()
-                }
-            }
-        }
-
-        private fun clampResultsDivider() {
-            val splitter = resultsSplitter ?: return
-            if (adjustingResultsDivider || splitter.height <= 0) {
-                return
-            }
-
-            val maxLocation = calculateMaxResultsDividerLocation(splitter)
-            if (splitter.dividerLocation <= maxLocation) {
-                return
-            }
-
-            adjustingResultsDivider = true
-            try {
-                splitter.dividerLocation = maxLocation
-            } finally {
-                adjustingResultsDivider = false
-            }
-        }
-
-        private fun calculateMaxResultsDividerLocation(splitter: JSplitPane): Int {
-            val minimumLocation = splitter.minimumDividerLocation.coerceAtLeast(0)
-            val minimumPreviewHeight = JBUI.scale(210)
-            val maxByPreview = (splitter.height - splitter.dividerSize - minimumPreviewHeight)
-                .coerceAtLeast(minimumLocation)
-
-            val maxByContent = preferredResultsContentHeight().coerceAtLeast(minimumLocation)
-            return minOf(maxByPreview, maxByContent)
-        }
-
-        private fun preferredResultsContentHeight(): Int {
-            val topHeight = resultsTopPanel?.preferredSize?.height ?: 0
-            val scrollPane = resultsScrollPane ?: return topHeight
-            val scrollInsets = scrollPane.insets
-            val listHeight = list.preferredSize.height
-            return topHeight + scrollInsets.top + scrollInsets.bottom + listHeight + JBUI.scale(1)
         }
 
         private fun isSelectedCategory(item: CollectionUsageResultItem): Boolean {
@@ -818,6 +753,21 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "ElementWrite" -> elementWrite
                 "ElementAlias", "ElementEscape" -> referenceUsage
                 else -> mutedForeground
+            }
+        }
+
+        fun colorForUsage(kind: String, operationKind: String): Color {
+            return when (operationKind) {
+                "ElementAdd" -> structureUsage
+                "ElementRemove" -> removeOperation
+                "ElementClear" -> clearOperation
+                "ElementSet" -> setOperation
+                "CollectionReorder" -> reorderOperation
+                "SetOperation" -> setMathOperation
+                "CollectionAssignment" -> assignmentUsage
+                "ElementContentWrite" -> elementWrite
+                "ElementReference" -> referenceUsage
+                else -> colorForKind(kind)
             }
         }
 
@@ -1124,7 +1074,10 @@ class FindCollectionUsagesFrontendAction : AnAction(
                     appendHighlightedCode(
                         value.item.text,
                         SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, code),
-                        SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, if (selected) primary else UsagePopupColors.colorForKind(value.item.kind))
+                        SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_BOLD,
+                            if (selected) primary else UsagePopupColors.colorForUsage(value.item.kind, value.item.operationKind)
+                        )
                     )
                 }
             }
