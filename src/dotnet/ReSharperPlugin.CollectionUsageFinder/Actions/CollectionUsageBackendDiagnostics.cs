@@ -32,7 +32,6 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 var defs = actionManager.Defs;
                 var directMatch = defs.TryGetActionDefById(RequestedActionId);
                 var dollarMatch = defs.TryGetActionDefById("$" + RequestedActionId);
-                var typeMatch = defs.TryGetActionDef(typeof(FindCollectionUsagesAction));
                 var relatedActionIds = defs.GetAllActionDefs()
                     .Select(def => def.ActionId)
                     .Where(id => !string.IsNullOrEmpty(id))
@@ -49,7 +48,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                     "RequestedActionId=" + RequestedActionId,
                     "RequestedActionRegistered=" + (directMatch != null),
                     "DollarRequestedActionRegistered=" + (dollarMatch != null),
-                    "TypeRegisteredActionId=" + (typeMatch?.ActionId ?? "<null>"),
+                    "BackendLegacyActionRegistered=<disabled-in-1.0>",
 #if RIDER
                     "BackendProtocolHostCreated=" + CollectionUsageProtocolHost.InstanceCreated,
                     "BackendProtocolLastEvent=" + CollectionUsageProtocolHost.LastEvent,

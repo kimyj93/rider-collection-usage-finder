@@ -3,29 +3,17 @@ using System.Collections;
 using JetBrains.Annotations;
 using JetBrains.Application.DataContext;
 using JetBrains.Application.UI.Actions;
-using JetBrains.Application.Shortcuts.ShortcutManager;
 using JetBrains.Application.UI.ActionsRevised.Menu;
-using JetBrains.Application.UI.ActionSystem.ActionsRevised.Menu;
-using JetBrains.ReSharper.Feature.Services.Menu;
 using JetBrains.ReSharper.Psi;
 using JetBrains.ReSharper.Psi.DataContext;
-using JetBrains.Util;
 using ReSharperPlugin.CollectionUsageFinder.Search;
 
 namespace ReSharperPlugin.CollectionUsageFinder.Actions
 {
-#pragma warning disable 612 // Custom backend action IDs still require the legacy constructor in this SDK surface.
-    [Action(
-        "CollectionUsageFinder.FindCollectionUsages",
-        typeof(CollectionUsageActionStrings),
-        nameof(CollectionUsageActionStrings.FindCollectionUsagesActionText),
-        IdeaShortcuts = new[] { "Control+F12" },
-        DefaultShortcutText = "Ctrl+F12",
-        ShortcutScope = ShortcutScope.TextEditor)]
+    // Kept as a dormant backend fallback for local debugging.
+    // The public 1.0 entry point is the Rider frontend action that opens the custom popup.
     public class FindCollectionUsagesAction :
-        IExecutableAction,
-        IInsertLast<FindUsagesGroup>,
-        IInsertLast<FindUsagesContextualGroup>
+        IExecutableAction
     {
         public bool Update(IDataContext context, ActionPresentation presentation, DelegateUpdate nextUpdate)
         {
@@ -41,7 +29,6 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             CollectionUsageFindResultsRunner.Execute(context, target, null);
         }
     }
-#pragma warning restore 612
 
     internal static class FindCollectionUsagesTargetLocator
     {
@@ -68,6 +55,6 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
     public static class CollectionUsageActionStrings
     {
-        public static string FindCollectionUsagesActionText => "Find Collection Usages";
+        public static string FindCollectionUsagesActionText => "컬렉션 사용 위치 찾기";
     }
 }

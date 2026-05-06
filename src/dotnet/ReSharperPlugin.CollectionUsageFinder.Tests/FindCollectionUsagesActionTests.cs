@@ -21,26 +21,25 @@ namespace ReSharperPlugin.CollectionUsageFinder.Tests
         }
 
         [Test]
-        public void Action_RegistersExpectedBackendActionId()
+        public void Action_IsNotRegisteredAsBackendUserAction()
         {
-            var actionAttribute = typeof(FindCollectionUsagesAction)
+            var actionAttributes = typeof(FindCollectionUsagesAction)
                 .GetCustomAttributes(typeof(ActionAttribute), false)
-                .Cast<ActionAttribute>()
-                .Single();
+                .Cast<ActionAttribute>();
 
-            Assert.That(actionAttribute.ActionId, Is.EqualTo("CollectionUsageFinder.FindCollectionUsages"));
+            Assert.That(actionAttributes, Is.Empty);
         }
 
         [Test]
-        public void Action_IsInsertedIntoFindUsagesMenus()
+        public void Action_IsNotInsertedIntoFindUsagesMenus()
         {
             Assert.That(
                 typeof(IInsertLast<FindUsagesGroup>).IsAssignableFrom(typeof(FindCollectionUsagesAction)),
-                Is.True);
+                Is.False);
 
             Assert.That(
                 typeof(IInsertLast<FindUsagesContextualGroup>).IsAssignableFrom(typeof(FindCollectionUsagesAction)),
-                Is.True);
+                Is.False);
         }
 
         [Test]

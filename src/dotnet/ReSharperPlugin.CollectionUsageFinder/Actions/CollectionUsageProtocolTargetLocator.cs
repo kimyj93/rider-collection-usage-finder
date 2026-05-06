@@ -27,7 +27,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
             if (string.IsNullOrWhiteSpace(filePath))
             {
-                failureReason = "Open a C# source file before running Find Collection Usages.";
+                failureReason = "컬렉션 사용 위치를 찾기 전에 C# 소스 파일을 열어야 합니다.";
                 return null;
             }
 

@@ -36,7 +36,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
         {
             if (!TryCreateSearchContext(dataContext, out var solution, out var sourceFile, out var document))
             {
-                MessageBox.ShowInfo("Open a C# source file before running Find Collection Usages.");
+                MessageBox.ShowInfo("컬렉션 사용 위치를 찾기 전에 C# 소스 파일을 열어야 합니다.");
                 return;
             }
 

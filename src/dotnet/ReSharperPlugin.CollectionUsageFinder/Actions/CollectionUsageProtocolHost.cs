@@ -72,10 +72,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                     "SearchExecuting",
                     request.FilePath + ":" + request.CaretOffset);
 
-                return myLocks.ExecuteWithReadLock(
-                    () => ExecuteUnderReadLock(request),
-                    "CollectionUsageFinder",
-                    "FindCollectionUsages");
+                return myLocks.ExecuteWithReadLock(() => ExecuteUnderReadLock(request));
             }
             catch (Exception exception)
             {
@@ -97,7 +94,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 CollectionUsageBackendDiagnostics.AppendProtocolEvent("SolutionNotFound", null);
                 return CreateFailureResponse(
                     false,
-                    "Open a C# solution before running Find Collection Usages.");
+                    "컬렉션 사용 위치를 찾기 전에 C# 솔루션을 열어야 합니다.");
             }
 
             var target = CollectionUsageProtocolTargetLocator.TryGetTarget(

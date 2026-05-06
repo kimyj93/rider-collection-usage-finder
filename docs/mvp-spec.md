@@ -217,12 +217,12 @@ When the plugin cannot prove a write but sees an escape, it should emit `Element
 
 ### Primary Action
 
-- `Find Collection Usages`
+- `컬렉션 사용 위치 찾기`
 - default shortcut: `Ctrl+F12`
 
 ### Optional Follow-up Action
 
-- `Find Collection Usages Advanced...`
+- `컬렉션 사용 위치 찾기 고급...`
 
 The advanced action is not required for the first implementation.
 

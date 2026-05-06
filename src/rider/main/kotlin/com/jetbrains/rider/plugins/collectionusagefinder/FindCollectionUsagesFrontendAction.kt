@@ -67,8 +67,8 @@ import javax.swing.plaf.basic.BasicSplitPaneDivider
 import javax.swing.plaf.basic.BasicSplitPaneUI
 
 class FindCollectionUsagesFrontendAction : AnAction(
-    "Find Collection Usages",
-    "Find collection-specific usages for supported C# BCL collections",
+    "컬렉션 사용 위치 찾기",
+    "지원되는 C# BCL 컬렉션의 전용 사용 위치를 찾습니다",
     null
 ) {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
@@ -84,7 +84,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
         if (project == null) {
             Messages.showErrorDialog(
                 null as Project?,
-                "Open a C# project before running Find Collection Usages.",
+                "컬렉션 사용 위치를 찾기 전에 C# 프로젝트를 열어야 합니다.",
                 "CollectionUsageFinder"
             )
             return
@@ -95,7 +95,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
         if (editor == null || virtualFile == null || !virtualFile.extension.equals("cs", ignoreCase = true)) {
             Messages.showErrorDialog(
                 project,
-                "Place the caret on a supported C# collection symbol before running Find Collection Usages.",
+                "지원되는 C# 컬렉션 심볼 위에 커서를 둔 뒤 실행하세요.",
                 "CollectionUsageFinder"
             )
             return
