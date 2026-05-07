@@ -78,6 +78,18 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 case CollectionUsageOperationKind.ElementReference:
                     return "레퍼런스 넘기기";
 
+                case CollectionUsageOperationKind.ElementRead:
+                    return "원소 읽기";
+
+                case CollectionUsageOperationKind.ConditionRead:
+                    return "상태/조건 확인";
+
+                case CollectionUsageOperationKind.EnumerationRead:
+                    return "순회";
+
+                case CollectionUsageOperationKind.CopyRead:
+                    return "복사/뷰";
+
                 default:
                     return "컬렉션 사용";
             }

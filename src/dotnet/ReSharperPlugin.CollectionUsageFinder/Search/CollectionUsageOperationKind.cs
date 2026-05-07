@@ -10,6 +10,10 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         SetOperation,
         CollectionAssignment,
         ElementContentWrite,
-        ElementReference
+        ElementReference,
+        ElementRead,
+        ConditionRead,
+        EnumerationRead,
+        CopyRead
     }
 }

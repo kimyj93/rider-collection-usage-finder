@@ -57,6 +57,7 @@ import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.geom.Path2D
 import java.io.File
 import javax.swing.Box
 import javax.swing.DefaultListModel
@@ -216,7 +217,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
     ) : JPanel(BorderLayout()) {
         private val categories = createUsageCategories()
         private val operationFilters = createUsageOperationFilters()
-        private val selectedCategoryIds = categories.mapTo(mutableSetOf()) { it.id }
+        private val selectedCategoryIds = categories.filter { it.defaultSelected }.mapTo(mutableSetOf()) { it.id }
         private val selectedOperationIds = operationFilters.mapTo(mutableSetOf()) { it.id }
         private val collapsedCategoryIds = mutableSetOf<String>()
         private val collapsedOperationIds = mutableSetOf<String>()
@@ -305,7 +306,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             }
 
             selectedCategoryIds.clear()
-            selectedCategoryIds += categories.map { it.id }
+            selectedCategoryIds += categories.filter { it.defaultSelected }.map { it.id }
             selectedOperationIds.clear()
             selectedOperationIds += operationFilters.map { it.id }
             collapsedCategoryIds.clear()
@@ -465,10 +466,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             section.border = if (prominent) {
                 JBUI.Borders.empty(0, 0, 0, 0)
             } else {
-                JBUI.Borders.compound(
-                    JBUI.Borders.customLine(UsagePopupColors.border, 1, 0, 0, 0),
-                    JBUI.Borders.empty(2, 0, 0, 0)
-                )
+                JBUI.Borders.empty(2, 0, 0, 0)
             }
 
             contentPanel.background = section.background
@@ -497,7 +495,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 val count = response.items.count(category.matches)
                 val chip = FilterChipButton("${category.title}  $count", category.color, prominent = true)
                 chip.icon = category.icon
-                chip.isSelected = true
+                chip.isSelected = category.id in selectedCategoryIds
                 chip.isEnabled = count > 0
                 chip.addActionListener {
                     if (chip.isSelected) {
@@ -505,6 +503,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                     } else {
                         selectedCategoryIds -= category.id
                     }
+                    rebuildOperationFilters(response)
                     refreshRows()
                 }
                 filtersPanel.add(chip)
@@ -513,16 +512,22 @@ class FindCollectionUsagesFrontendAction : AnAction(
             filtersPanel.revalidate()
             filtersPanel.repaint()
 
+            rebuildOperationFilters(response)
+        }
+
+        private fun rebuildOperationFilters(response: CollectionUsageFindResponse) {
             operationFiltersPanel.removeAll()
             for (operationFilter in operationFilters) {
-                val count = response.items.count(operationFilter.matches)
+                val count = response.items.count { item ->
+                    operationFilter.matches(item) && isSelectedCategory(item)
+                }
                 if (count == 0) {
                     continue
                 }
 
                 val chip = FilterChipButton("${operationFilter.title} $count", operationFilter.color, prominent = false)
                 chip.icon = operationFilter.icon
-                chip.isSelected = true
+                chip.isSelected = operationFilter.id in selectedOperationIds
                 chip.addActionListener {
                     if (chip.isSelected) {
                         selectedOperationIds += operationFilter.id
@@ -747,6 +752,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
         val title: String,
         val color: Color,
         val icon: Icon,
+        val defaultSelected: Boolean = true,
         val matches: (CollectionUsageResultItem) -> Boolean
     )
 
@@ -800,10 +806,11 @@ class FindCollectionUsagesFrontendAction : AnAction(
         val splitterActiveBackground: Color = JBColor(Color(0xE8EEF4), Color(0x2C3139))
         val structureUsage: Color = JBColor(Color(0x227A46), Color(0x72D39B))
         val assignmentUsage: Color = JBColor(Color(0x9A6512), Color(0xE4B363))
-        val elementWrite: Color = JBColor(Color(0xB13B3B), Color(0xF08A8A))
+        val elementWrite: Color = JBColor(Color(0x8E4DB8), Color(0xD7A0FF))
         val referenceUsage: Color = JBColor(Color(0x2F65B0), Color(0x8BB8FF))
+        val readUsage: Color = JBColor(Color(0x2B7180), Color(0x7ECFDB))
         val removeOperation: Color = JBColor(Color(0xA0442C), Color(0xF0A06A))
-        val clearOperation: Color = JBColor(Color(0xB13B3B), Color(0xFF8F8F))
+        val clearOperation: Color = JBColor(Color(0xB13B3B), Color(0xFF7A7A))
         val setOperation: Color = JBColor(Color(0x7B5BB8), Color(0xC2A4FF))
         val reorderOperation: Color = JBColor(Color(0x247A8A), Color(0x76D6E8))
         val setMathOperation: Color = JBColor(Color(0x3569A8), Color(0x93C5FD))
@@ -814,6 +821,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionAssignment" -> assignmentUsage
                 "ElementWrite" -> elementWrite
                 "ElementAlias", "ElementEscape" -> referenceUsage
+                "CollectionRead" -> readUsage
                 else -> mutedForeground
             }
         }
@@ -829,6 +837,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionAssignment" -> assignmentUsage
                 "ElementContentWrite" -> elementWrite
                 "ElementReference" -> referenceUsage
+                "ElementRead", "ConditionRead", "EnumerationRead", "CopyRead" -> readUsage
                 else -> colorForKind(kind)
             }
         }
@@ -839,6 +848,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionAssignment" -> JBColor(Color(0xFFE2A3), Color(0x604A24))
                 "ElementWrite" -> JBColor(Color(0xFFD2D2), Color(0x663638))
                 "ElementAlias", "ElementEscape" -> JBColor(Color(0xCFE2FF), Color(0x334F78))
+                "CollectionRead" -> JBColor(Color(0xC9F0F5), Color(0x2D5861))
                 else -> highlightBackground
             }
         }
@@ -946,10 +956,14 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 else -> transparent(UsagePopupColors.border, 95)
             }
 
-            graphics.color = fill
-            graphics.fillRoundRect(0, 0, width - 1, height - 1, radius, radius)
-            graphics.color = outline
-            graphics.drawRoundRect(0, 0, width - 1, height - 1, radius, radius)
+            if (prominent) {
+                paintTabShape(graphics, fill, outline, radius)
+            } else {
+                graphics.color = fill
+                graphics.fillRoundRect(0, 0, width - 1, height - 1, radius, radius)
+                graphics.color = outline
+                graphics.drawRoundRect(0, 0, width - 1, height - 1, radius, radius)
+            }
             graphics.dispose()
 
             foreground = when {
@@ -975,6 +989,34 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
         private fun transparent(color: Color, alpha: Int): Color {
             return Color(color.red, color.green, color.blue, alpha)
+        }
+
+        private fun paintTabShape(graphics: Graphics2D, fill: Color, outline: Color, radius: Int) {
+            val right = (width - 1).toFloat()
+            val bottom = (height - 1).toFloat()
+            val curve = radius.toFloat()
+
+            val fillPath = Path2D.Float()
+            fillPath.moveTo(0f, bottom)
+            fillPath.lineTo(0f, curve)
+            fillPath.quadTo(0f, 0f, curve, 0f)
+            fillPath.lineTo(right - curve, 0f)
+            fillPath.quadTo(right, 0f, right, curve)
+            fillPath.lineTo(right, bottom)
+            fillPath.closePath()
+
+            val outlinePath = Path2D.Float()
+            outlinePath.moveTo(0f, bottom)
+            outlinePath.lineTo(0f, curve)
+            outlinePath.quadTo(0f, 0f, curve, 0f)
+            outlinePath.lineTo(right - curve, 0f)
+            outlinePath.quadTo(right, 0f, right, curve)
+            outlinePath.lineTo(right, bottom)
+
+            graphics.color = fill
+            graphics.fill(fillPath)
+            graphics.color = outline
+            graphics.draw(outlinePath)
         }
     }
 
@@ -1191,6 +1233,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 },
                 UsageCategory("reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
                     it.kind == "ElementAlias" || it.kind == "ElementEscape"
+                },
+                UsageCategory("read", "읽기", UsagePopupColors.readUsage, AllIcons.General.Information, defaultSelected = false) {
+                    it.kind == "CollectionRead"
                 }
             )
         }
@@ -1223,6 +1268,18 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 },
                 UsageOperationFilter("element-reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
                     it.operationKind == "ElementReference"
+                },
+                UsageOperationFilter("element-read", "원소 읽기", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                    it.operationKind == "ElementRead"
+                },
+                UsageOperationFilter("condition-read", "상태/조건 확인", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                    it.operationKind == "ConditionRead"
+                },
+                UsageOperationFilter("enumeration-read", "순회", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                    it.operationKind == "EnumerationRead"
+                },
+                UsageOperationFilter("copy-read", "복사/뷰", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                    it.operationKind == "CopyRead"
                 }
             )
         }
@@ -1233,6 +1290,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionAssignment" -> AllIcons.Actions.Replace
                 "ElementWrite" -> AllIcons.Actions.Edit
                 "ElementAlias", "ElementEscape" -> AllIcons.Actions.Forward
+                "CollectionRead" -> AllIcons.General.Information
                 else -> null
             }
         }

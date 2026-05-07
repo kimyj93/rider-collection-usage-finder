@@ -106,11 +106,65 @@ class C
         if (list == other)
             return;
 
-        System.Action<System.Collections.Generic.List<Item>> action = list => _ = list.Count;
+        System.Action<System.Collections.Generic.List<Item>> action = items => _ = other.Count;
     }
 }", "list");
 
             Assert.That(occurrences, Is.Empty);
+        }
+
+        [Test]
+        public void Analyze_FindsReadUsages()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.Dictionary<int, Item> map, int key)
+    {
+        if (map.ContainsKey(key))
+            return;
+
+        if (map.TryGetValue(key, out var item))
+            _ = item;
+
+        if (map[key] != null)
+            return;
+
+        foreach (var pair in map)
+            _ = pair.Value;
+
+        var values = map.Values;
+        var copy = map.ToList();
+    }
+}", "map");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ConditionRead,
+                CollectionUsageOperationKind.ElementRead,
+                CollectionUsageOperationKind.ElementRead,
+                CollectionUsageOperationKind.EnumerationRead,
+                CollectionUsageOperationKind.EnumerationRead,
+                CollectionUsageOperationKind.CopyRead
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationName), Is.EqualTo(new[]
+            {
+                "ContainsKey",
+                "TryGetValue",
+                "IndexerRead",
+                "Foreach",
+                "Values",
+                "ToList"
+            }));
         }
 
         [Test]
@@ -303,7 +357,14 @@ class C
     }
 }", "list");
 
-            Assert.That(occurrences, Is.Empty);
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead
+            }));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.ElementRead));
         }
 
         [Test]
@@ -433,7 +494,7 @@ class C
 
             Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
             {
-                CollectionUsageKind.ElementAlias
+                CollectionUsageKind.CollectionRead
             }));
             Assert.That(occurrences.Single().Text, Is.EqualTo("foreach (var item in _brokenItems)"));
         }
@@ -462,7 +523,7 @@ class C
 
             Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
             {
-                CollectionUsageKind.ElementAlias
+                CollectionUsageKind.CollectionRead
             }));
         }
 
@@ -483,7 +544,7 @@ class C
 
             Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
             {
-                CollectionUsageKind.ElementAlias,
+                CollectionUsageKind.CollectionRead,
                 CollectionUsageKind.ElementWrite
             }));
         }
@@ -581,7 +642,7 @@ class C
         }
 
         [Test]
-        public void Analyze_IgnoresReadOnlyReferences()
+        public void Analyze_FindsReadOnlyReferencesAsReadUsages()
         {
             var occurrences = analyzer.Analyze(@"
 class C
@@ -594,7 +655,18 @@ class C
     }
 }", "list");
 
-            Assert.That(occurrences, Is.Empty);
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageKind.CollectionRead
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ConditionRead,
+                CollectionUsageOperationKind.ElementRead,
+                CollectionUsageOperationKind.ConditionRead
+            }));
         }
     }
 }
