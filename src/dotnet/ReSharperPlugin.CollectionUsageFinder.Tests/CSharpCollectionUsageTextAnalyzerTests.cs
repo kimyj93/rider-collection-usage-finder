@@ -94,15 +94,59 @@ class C
         }
 
         [Test]
-        public void Analyze_DoesNotTreatCollectionComparisonsOrDeclarationsAsAssignments()
+        public void Analyze_FindsCollectionInitializations()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    System.Collections.Generic.Dictionary<int, Item> fieldMap = new System.Collections.Generic.Dictionary<int, Item>();
+
+    void M(System.Collections.Generic.Dictionary<int, Item> other)
+    {
+        var localMap = other;
+        System.Collections.Generic.Dictionary<int, Item> explicitMap = other;
+    }
+}", "localMap");
+
+            var explicitOccurrences = analyzer.Analyze(@"
+class C
+{
+    System.Collections.Generic.Dictionary<int, Item> fieldMap = new System.Collections.Generic.Dictionary<int, Item>();
+
+    void M(System.Collections.Generic.Dictionary<int, Item> other)
+    {
+        var localMap = other;
+        System.Collections.Generic.Dictionary<int, Item> explicitMap = other;
+    }
+}", "explicitMap");
+
+            var fieldOccurrences = analyzer.Analyze(@"
+class C
+{
+    System.Collections.Generic.Dictionary<int, Item> fieldMap = new System.Collections.Generic.Dictionary<int, Item>();
+
+    void M(System.Collections.Generic.Dictionary<int, Item> other)
+    {
+        var localMap = other;
+        System.Collections.Generic.Dictionary<int, Item> explicitMap = other;
+    }
+}", "fieldMap");
+
+            Assert.That(occurrences.Single().Kind, Is.EqualTo(CollectionUsageKind.CollectionAssignment));
+            Assert.That(occurrences.Single().OperationKind, Is.EqualTo(CollectionUsageOperationKind.CollectionInitialization));
+            Assert.That(occurrences.Single().Text, Is.EqualTo("var localMap = other;"));
+            Assert.That(explicitOccurrences.Single().OperationKind, Is.EqualTo(CollectionUsageOperationKind.CollectionInitialization));
+            Assert.That(fieldOccurrences.Single().OperationKind, Is.EqualTo(CollectionUsageOperationKind.CollectionInitialization));
+        }
+
+        [Test]
+        public void Analyze_DoesNotTreatCollectionComparisonsAsAssignments()
         {
             var occurrences = analyzer.Analyze(@"
 class C
 {
     void M(System.Collections.Generic.List<Item> other)
     {
-        System.Collections.Generic.List<Item> list = other;
-
         if (list == other)
             return;
 

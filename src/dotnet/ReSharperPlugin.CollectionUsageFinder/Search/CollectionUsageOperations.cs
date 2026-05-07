@@ -69,6 +69,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 case CollectionUsageOperationKind.SetOperation:
                     return "집합 연산";
 
+                case CollectionUsageOperationKind.CollectionInitialization:
+                    return "컬렉션 초기화";
+
                 case CollectionUsageOperationKind.CollectionAssignment:
                     return "컬렉션 대입";
 

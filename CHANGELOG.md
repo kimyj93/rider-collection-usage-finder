@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## 1.0.4
+- 선언과 동시에 컬렉션 값을 할당하는 `var map = ...`, `Dictionary<TKey, TValue> map = ...` 같은 패턴을 `컬렉션 초기화`로 탐지합니다.
+- `컬렉션 대입` 대분류 아래에서 `컬렉션 초기화`와 기존 재대입을 상세 동작으로 구분합니다.
+
 ## 1.0.3
 - 상세 동작 필터에서 `내용물 수정`과 삭제 계열이 같은 빨강 계열로 보이던 색상 정책을 조정했습니다.
 - `내용물 수정`은 보라 계열, `전체 삭제`는 더 명확한 빨강 계열로 분리했습니다.

@@ -834,7 +834,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "ElementSet" -> setOperation
                 "CollectionReorder" -> reorderOperation
                 "SetOperation" -> setMathOperation
-                "CollectionAssignment" -> assignmentUsage
+                "CollectionInitialization", "CollectionAssignment" -> assignmentUsage
                 "ElementContentWrite" -> elementWrite
                 "ElementReference" -> referenceUsage
                 "ElementRead", "ConditionRead", "EnumerationRead", "CopyRead" -> readUsage
@@ -1259,6 +1259,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 },
                 UsageOperationFilter("set-operation", "집합 연산", UsagePopupColors.setMathOperation, AllIcons.Actions.Replace) {
                     it.operationKind == "SetOperation"
+                },
+                UsageOperationFilter("collection-initialization", "컬렉션 초기화", UsagePopupColors.assignmentUsage, AllIcons.Actions.Replace) {
+                    it.operationKind == "CollectionInitialization"
                 },
                 UsageOperationFilter("collection-assignment", "컬렉션 대입", UsagePopupColors.assignmentUsage, AllIcons.Actions.Replace) {
                     it.operationKind == "CollectionAssignment"

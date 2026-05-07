@@ -8,6 +8,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         ElementSet,
         CollectionReorder,
         SetOperation,
+        CollectionInitialization,
         CollectionAssignment,
         ElementContentWrite,
         ElementReference,

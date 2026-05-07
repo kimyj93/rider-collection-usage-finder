@@ -148,20 +148,26 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 if (!isTargetReferenceAllowed(match.Index))
                     continue;
 
-                if (LooksLikeDeclarationTarget(sanitizedText, match.Index))
-                    continue;
+                var isDeclarationTarget = LooksLikeDeclarationTarget(sanitizedText, match.Index);
 
                 var operatorOffset = SkipWhitespace(sanitizedText, match.Index + match.Length);
                 if (!TryGetCollectionAssignmentOperatorLength(sanitizedText, operatorOffset, out var operatorLength))
                     continue;
+
+                var operationKind = isDeclarationTarget
+                    ? CollectionUsageOperationKind.CollectionInitialization
+                    : CollectionUsageOperationKind.CollectionAssignment;
+                var operationName = isDeclarationTarget
+                    ? "Initialization"
+                    : GetAssignmentOperationName(sanitizedText, operatorOffset, operatorLength);
 
                 AddOccurrence(
                     sourceText,
                     match.Index,
                     operatorOffset + operatorLength - match.Index,
                     CollectionUsageKind.CollectionAssignment,
-                    CollectionUsageOperationKind.CollectionAssignment,
-                    GetAssignmentOperationName(sanitizedText, operatorOffset, operatorLength),
+                    operationKind,
+                    operationName,
                     lineMap,
                     occurrences);
             }
