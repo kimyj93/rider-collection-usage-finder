@@ -2,12 +2,16 @@ package com.jetbrains.rider.plugins.collectionusagefinder
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
@@ -17,6 +21,7 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.JBColor
 import com.intellij.ui.ScrollPaneFactory
@@ -56,6 +61,7 @@ import java.io.File
 import javax.swing.Box
 import javax.swing.DefaultListModel
 import javax.swing.Icon
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
@@ -103,8 +109,11 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
         FileDocumentManager.getInstance().saveDocument(editor.document)
 
+        val targetOffset = editor.caretModel.offset
         val csharpFileType = FileTypeManager.getInstance().getFileTypeByExtension("cs")
-        val popupUi = CollectionUsagePopupUi(project, csharpFileType)
+        val popupUi = CollectionUsagePopupUi(project, csharpFileType) {
+            openDefaultFindUsages(project, editor, virtualFile, targetOffset)
+        }
         val popup = JBPopupFactory.getInstance()
             .createComponentPopupBuilder(popupUi, popupUi.focusComponent)
             .setTitle("Collection Usage Finder")
@@ -121,7 +130,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
         popupUi.showSearching()
         popup.showAtCaret(editor)
 
-        val request = CollectionUsageFindRequest(virtualFile.path, editor.caretModel.offset)
+        val request = CollectionUsageFindRequest(virtualFile.path, targetOffset)
         val protocol = project.protocol
         val task = runCatching {
             protocol.collectionUsageFinderProtocol
@@ -158,6 +167,40 @@ class FindCollectionUsagesFrontendAction : AnAction(
         }
     }
 
+    private fun openDefaultFindUsages(project: Project, editor: Editor, virtualFile: VirtualFile, offset: Int) {
+        val action = ActionManager.getInstance().getAction(DEFAULT_FIND_USAGES_ACTION_ID)
+        if (action == null) {
+            Messages.showErrorDialog(
+                project,
+                "Rider 기본 Find Usages 액션을 찾을 수 없습니다.",
+                "CollectionUsageFinder"
+            )
+            return
+        }
+
+        val sourceOffset = offset.coerceIn(0, editor.document.textLength)
+        OpenFileDescriptor(project, virtualFile, sourceOffset).navigate(true)
+        ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed) {
+                return@invokeLater
+            }
+
+            val activeEditor = FileEditorManager.getInstance(project).selectedTextEditor ?: editor
+            val safeOffset = sourceOffset.coerceIn(0, activeEditor.document.textLength)
+            activeEditor.caretModel.moveToOffset(safeOffset)
+            activeEditor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+            activeEditor.contentComponent.requestFocusInWindow()
+
+            ActionManager.getInstance().tryToExecute(
+                action,
+                null,
+                activeEditor.contentComponent,
+                ActionPlaces.UNKNOWN,
+                true
+            )
+        }
+    }
+
     private fun JBPopup.showAtCaret(editor: Editor) {
         val caretPoint = editor.visualPositionToXY(editor.caretModel.visualPosition)
         val popupHeight = content.preferredSize.height.takeIf { it > 0 } ?: JBUI.scale(660)
@@ -168,7 +211,8 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
     private class CollectionUsagePopupUi(
         private val project: Project,
-        private val csharpFileType: FileType
+        private val csharpFileType: FileType,
+        private val openDefaultFindUsages: () -> Unit
     ) : JPanel(BorderLayout()) {
         private val categories = createUsageCategories()
         private val operationFilters = createUsageOperationFilters()
@@ -182,8 +226,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private val list = JBList(listModel)
         private val countLabel = JBLabel()
         private val titleLabel = JBLabel("Collection Usage 검색")
-    private val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
-    private val operationFiltersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
+        private val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
+        private val operationFiltersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
+        private val openAllUsagesButton = JButton("전체 사용 위치 찾기")
         private val previewTitle = JBLabel("미리보기")
         private val usagePreview = CollectionUsagePreviewPanel(project)
         private val messageIcon = JBLabel()
@@ -306,11 +351,28 @@ class FindCollectionUsagesFrontendAction : AnAction(
             countLabel.foreground = UsagePopupColors.mutedForeground
             countLabel.font = countLabel.font.deriveFont(Font.PLAIN, countLabel.font.size2D - 1f)
 
+            openAllUsagesButton.toolTipText = "Rider 기본 Find Usages로 전체 사용 위치를 엽니다"
+            openAllUsagesButton.isFocusable = false
+            openAllUsagesButton.margin = JBUI.insets(1, 7, 1, 7)
+            openAllUsagesButton.font = openAllUsagesButton.font.deriveFont(
+                Font.PLAIN,
+                openAllUsagesButton.font.size2D - 1f
+            )
+            openAllUsagesButton.addActionListener {
+                popup?.cancel()
+                openDefaultFindUsages()
+            }
+
+            val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(8), 0))
+            rightPanel.background = UsagePopupColors.panelBackground
+            rightPanel.add(openAllUsagesButton)
+            rightPanel.add(countLabel)
+
             val headerPanel = JPanel(BorderLayout())
             headerPanel.background = UsagePopupColors.panelBackground
             headerPanel.border = JBUI.Borders.empty(6, 12, 5, 12)
-            headerPanel.add(titleLabel, BorderLayout.WEST)
-            headerPanel.add(countLabel, BorderLayout.EAST)
+            headerPanel.add(titleLabel, BorderLayout.CENTER)
+            headerPanel.add(rightPanel, BorderLayout.EAST)
             return headerPanel
         }
 
@@ -1112,6 +1174,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
     }
 
     companion object {
+        private const val DEFAULT_FIND_USAGES_ACTION_ID = "FindUsages"
         private const val MESSAGE_CARD = "message"
         private const val RESULTS_CARD = "results"
 

@@ -72,7 +72,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                     "SearchExecuting",
                     request.FilePath + ":" + request.CaretOffset);
 
-                return myLocks.ExecuteWithReadLock(() => ExecuteUnderReadLock(request));
+                return ExecuteWithCompatibleReadLock(() => ExecuteUnderReadLock(request));
             }
             catch (Exception exception)
             {
@@ -80,7 +80,74 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
                 CollectionUsageBackendDiagnostics.AppendProtocolEvent("SearchFailed", exception.ToString());
                 return CreateFailureResponse(
                     false,
-                    "CollectionUsageFinder backend search failed:\n" + exception.Message);
+                "CollectionUsageFinder backend search failed:\n" + exception.Message);
+            }
+        }
+
+        [NotNull]
+        private CollectionUsageFindResponse ExecuteWithCompatibleReadLock([NotNull] Func<CollectionUsageFindResponse> action)
+        {
+            CollectionUsageFindResponse response = null;
+
+            InvokeCompatibleExecuteWithReadLock(() =>
+            {
+                response = action();
+            });
+
+            return response ?? CreateFailureResponse(
+                false,
+                "CollectionUsageFinder backend search failed:\nRead lock execution did not return a result.");
+        }
+
+        private void InvokeCompatibleExecuteWithReadLock([NotNull] Action action)
+        {
+            var shellLocksExType = typeof(IShellLocks).Assembly.GetType("JetBrains.Application.Threading.IShellLocksEx");
+            if (shellLocksExType == null)
+                throw new InvalidOperationException("IShellLocksEx type was not found.");
+
+            var methods = shellLocksExType.GetMethods(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+
+            var methodWithCallerInfo = methods.FirstOrDefault(static method =>
+            {
+                if (method.Name != "ExecuteWithReadLock" || method.ReturnType != typeof(void))
+                    return false;
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 4 &&
+                       parameters[0].ParameterType == typeof(IShellLocks) &&
+                       parameters[1].ParameterType == typeof(Action) &&
+                       parameters[2].ParameterType == typeof(string) &&
+                       parameters[3].ParameterType == typeof(string);
+            });
+
+            var legacyMethod = methods.FirstOrDefault(static method =>
+            {
+                if (method.Name != "ExecuteWithReadLock" || method.ReturnType != typeof(void))
+                    return false;
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 2 &&
+                       parameters[0].ParameterType == typeof(IShellLocks) &&
+                       parameters[1].ParameterType == typeof(Action);
+            });
+
+            var method = methodWithCallerInfo ?? legacyMethod;
+            if (method == null)
+                throw new MissingMethodException(
+                    "JetBrains.Application.Threading.IShellLocksEx.ExecuteWithReadLock",
+                    "No supported Action overload was found.");
+
+            try
+            {
+                if (method.GetParameters().Length == 4)
+                    method.Invoke(null, new object[] { myLocks, action, "CollectionUsageFinder", "FindCollectionUsages" });
+                else
+                    method.Invoke(null, new object[] { myLocks, action });
+            }
+            catch (System.Reflection.TargetInvocationException exception)
+            {
+                throw exception.InnerException ?? exception;
             }
         }
 
