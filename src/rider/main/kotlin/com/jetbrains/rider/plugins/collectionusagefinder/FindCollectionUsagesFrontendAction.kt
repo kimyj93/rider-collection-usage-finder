@@ -820,7 +820,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionStructureUsage" -> structureUsage
                 "CollectionAssignment" -> assignmentUsage
                 "ElementWrite" -> elementWrite
-                "ElementAlias", "ElementEscape" -> referenceUsage
+                "ElementAlias", "ElementEscape", "CollectionEscape" -> referenceUsage
                 "CollectionRead" -> readUsage
                 else -> mutedForeground
             }
@@ -836,7 +836,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "SetOperation" -> setMathOperation
                 "CollectionInitialization", "CollectionAssignment" -> assignmentUsage
                 "ElementContentWrite" -> elementWrite
-                "ElementReference" -> referenceUsage
+                "ElementReference", "CollectionReference" -> referenceUsage
                 "ElementRead", "ConditionRead", "EnumerationRead", "CopyRead" -> readUsage
                 else -> colorForKind(kind)
             }
@@ -847,7 +847,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionStructureUsage" -> JBColor(Color(0xB7F1CD), Color(0x295A3B))
                 "CollectionAssignment" -> JBColor(Color(0xFFE2A3), Color(0x604A24))
                 "ElementWrite" -> JBColor(Color(0xFFD2D2), Color(0x663638))
-                "ElementAlias", "ElementEscape" -> JBColor(Color(0xCFE2FF), Color(0x334F78))
+                "ElementAlias", "ElementEscape", "CollectionEscape" -> JBColor(Color(0xCFE2FF), Color(0x334F78))
                 "CollectionRead" -> JBColor(Color(0xC9F0F5), Color(0x2D5861))
                 else -> highlightBackground
             }
@@ -1232,7 +1232,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                     it.kind == "ElementWrite"
                 },
                 UsageCategory("reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
-                    it.kind == "ElementAlias" || it.kind == "ElementEscape"
+                    it.kind == "ElementAlias" || it.kind == "ElementEscape" || it.kind == "CollectionEscape"
                 },
                 UsageCategory("read", "읽기", UsagePopupColors.readUsage, AllIcons.General.Information, defaultSelected = false) {
                     it.kind == "CollectionRead"
@@ -1269,8 +1269,11 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 UsageOperationFilter("element-content-write", "내용물 수정", UsagePopupColors.elementWrite, AllIcons.Actions.Edit) {
                     it.operationKind == "ElementContentWrite"
                 },
-                UsageOperationFilter("element-reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
+                UsageOperationFilter("element-reference", "원소 레퍼런스", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
                     it.operationKind == "ElementReference"
+                },
+                UsageOperationFilter("collection-reference", "컬렉션 레퍼런스", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
+                    it.operationKind == "CollectionReference"
                 },
                 UsageOperationFilter("element-read", "원소 읽기", UsagePopupColors.readUsage, AllIcons.General.Information) {
                     it.operationKind == "ElementRead"
@@ -1292,7 +1295,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionStructureUsage" -> AllIcons.General.Add
                 "CollectionAssignment" -> AllIcons.Actions.Replace
                 "ElementWrite" -> AllIcons.Actions.Edit
-                "ElementAlias", "ElementEscape" -> AllIcons.Actions.Forward
+                "ElementAlias", "ElementEscape", "CollectionEscape" -> AllIcons.Actions.Forward
                 "CollectionRead" -> AllIcons.General.Information
                 else -> null
             }

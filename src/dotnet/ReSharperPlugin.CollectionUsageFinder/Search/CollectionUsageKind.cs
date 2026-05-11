@@ -7,6 +7,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         ElementWrite,
         ElementAlias,
         ElementEscape,
+        CollectionEscape,
         CollectionRead
     }
 }

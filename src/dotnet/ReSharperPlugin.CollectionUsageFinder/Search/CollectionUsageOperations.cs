@@ -79,7 +79,10 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                     return "내용물 수정";
 
                 case CollectionUsageOperationKind.ElementReference:
-                    return "레퍼런스 넘기기";
+                    return "원소 레퍼런스";
+
+                case CollectionUsageOperationKind.CollectionReference:
+                    return "컬렉션 레퍼런스";
 
                 case CollectionUsageOperationKind.ElementRead:
                     return "원소 읽기";

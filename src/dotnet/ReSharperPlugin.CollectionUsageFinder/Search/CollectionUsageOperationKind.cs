@@ -12,6 +12,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         CollectionAssignment,
         ElementContentWrite,
         ElementReference,
+        CollectionReference,
         ElementRead,
         ConditionRead,
         EnumerationRead,

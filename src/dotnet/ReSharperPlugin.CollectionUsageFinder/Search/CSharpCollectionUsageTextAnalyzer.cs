@@ -395,6 +395,47 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 lineMap,
                 isTargetReferenceAllowed,
                 occurrences);
+
+            AddTargetMatches(
+                sourceText,
+                sanitizedText,
+                regexSet.CollectionReturnEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageOperationKind.CollectionReference,
+                "ReturnCollection",
+                lineMap,
+                isTargetReferenceAllowed,
+                occurrences);
+
+            AddTargetMatches(
+                sourceText,
+                sanitizedText,
+                regexSet.CollectionAssignmentEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageOperationKind.CollectionReference,
+                "AssignCollection",
+                lineMap,
+                isTargetReferenceAllowed,
+                occurrences);
+
+            foreach (Match match in regexSet.CollectionArgumentEscape.Matches(sanitizedText))
+            {
+                if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
+                    continue;
+
+                var targetGroup = match.Groups["target"];
+                if (LooksLikeDeclarationTarget(sanitizedText, targetGroup.Index))
+                    continue;
+
+                AddTargetOccurrence(
+                    sourceText,
+                    match,
+                    CollectionUsageKind.CollectionEscape,
+                    CollectionUsageOperationKind.CollectionReference,
+                    "ArgumentCollection",
+                    lineMap,
+                    occurrences);
+            }
         }
 
         private static void CollectReadUsages(
@@ -905,6 +946,12 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                     $@"(?:^|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;");
                 ArgumentEscape = CreateRegex(
                     $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*\([^;\r\n]*(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}(?!\s*\.)[^;\r\n]*\)");
+                CollectionReturnEscape = CreateRegex(
+                    $@"\breturn\s+(?<target>\b{targetPattern})\s*;");
+                CollectionAssignmentEscape = CreateRegex(
+                    $@"(?:^|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>\b{targetPattern})\s*;");
+                CollectionArgumentEscape = CreateRegex(
+                    $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b|nameof\b|typeof\b|sizeof\b)[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?(?:\s*\.\s*[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?)*\s*\([^;\r\n]*(?<target>\b{targetPattern})\b(?!\s*(?:[\.\[]|=>))[^;\r\n]*\)");
             }
 
             public Regex TargetReferences { get; }
@@ -928,6 +975,12 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             public Regex AssignmentEscape { get; }
 
             public Regex ArgumentEscape { get; }
+
+            public Regex CollectionReturnEscape { get; }
+
+            public Regex CollectionAssignmentEscape { get; }
+
+            public Regex CollectionArgumentEscape { get; }
 
             public Regex GetAliasElementWrite(string aliasName)
             {

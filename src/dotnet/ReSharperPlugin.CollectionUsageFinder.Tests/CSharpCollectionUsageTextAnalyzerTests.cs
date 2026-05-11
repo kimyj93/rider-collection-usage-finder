@@ -640,6 +640,45 @@ class C
                 CollectionUsageKind.ElementEscape,
                 CollectionUsageKind.ElementEscape
             }));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.ElementReference));
+        }
+
+        [Test]
+        public void Analyze_FindsWholeCollectionReferenceEscapes()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    System.Collections.Generic.List<Item> current;
+
+    System.Collections.Generic.List<Item> M(System.Collections.Generic.List<Item> list, System.Collections.Generic.List<Item> target)
+    {
+        target.AddRange(list);
+        Process(list);
+        current = list;
+        return list;
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageKind.CollectionEscape
+            }));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.CollectionReference));
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "target.AddRange(list);",
+                "Process(list);",
+                "current = list;",
+                "return list;"
+            }));
         }
 
         [Test]

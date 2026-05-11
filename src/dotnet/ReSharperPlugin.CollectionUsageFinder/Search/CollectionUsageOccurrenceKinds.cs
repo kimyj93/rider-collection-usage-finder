@@ -19,6 +19,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         public static readonly OccurrenceKind ElementEscape =
             OccurrenceKind.CreateSemantic("Element Escape", true);
 
+        public static readonly OccurrenceKind CollectionEscape =
+            OccurrenceKind.CreateSemantic("Collection Escape", true);
+
         public static readonly OccurrenceKind CollectionRead =
             OccurrenceKind.CreateSemantic("Collection Read", true);
 
@@ -40,6 +43,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
 
                 case CollectionUsageKind.ElementEscape:
                     return ElementEscape;
+
+                case CollectionUsageKind.CollectionEscape:
+                    return CollectionEscape;
 
                 case CollectionUsageKind.CollectionRead:
                     return CollectionRead;
@@ -67,6 +73,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
 
                 case CollectionUsageKind.ElementEscape:
                     return "Element Escape";
+
+                case CollectionUsageKind.CollectionEscape:
+                    return "Collection Escape";
 
                 case CollectionUsageKind.CollectionRead:
                     return "Collection Read";

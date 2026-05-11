@@ -678,6 +678,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
 
                 case CollectionUsageKind.ElementAlias:
                 case CollectionUsageKind.ElementEscape:
+                case CollectionUsageKind.CollectionEscape:
                     return "레퍼런스 넘기기";
 
                 default:
