@@ -1,4 +1,4 @@
-package com.jetbrains.rider.plugins.collectionusagefinder
+﻿package com.jetbrains.rider.plugins.collectionusagefinder
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -19,6 +19,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
@@ -63,6 +64,7 @@ import javax.swing.Box
 import javax.swing.DefaultListModel
 import javax.swing.Icon
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.JPanel
@@ -215,9 +217,14 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private val csharpFileType: FileType,
         private val openDefaultFindUsages: () -> Unit
     ) : JPanel(BorderLayout()) {
+        private val propertiesComponent = PropertiesComponent.getInstance()
+        private var showReadByDefault = propertiesComponent.getBoolean(
+            SHOW_READ_BY_DEFAULT_PROPERTY,
+            propertiesComponent.getBoolean(LEGACY_INCLUDE_READ_USAGES_PROPERTY, true)
+        )
         private val categories = createUsageCategories()
         private val operationFilters = createUsageOperationFilters()
-        private val selectedCategoryIds = categories.filter { it.defaultSelected }.mapTo(mutableSetOf()) { it.id }
+        private val selectedCategoryIds = defaultSelectedCategoryIds().toMutableSet()
         private val selectedOperationIds = operationFilters.mapTo(mutableSetOf()) { it.id }
         private val collapsedCategoryIds = mutableSetOf<String>()
         private val collapsedOperationIds = mutableSetOf<String>()
@@ -229,6 +236,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private val titleLabel = JBLabel("Collection Usage 검색")
         private val filtersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
         private val operationFiltersPanel = JPanel(FlowLayout(FlowLayout.LEFT, 3, 0))
+        private val showReadByDefaultCheckBox = JCheckBox("읽기 기본 표시")
         private val openAllUsagesButton = JButton("전체 사용 위치 찾기")
         private val previewTitle = JBLabel("미리보기")
         private val usagePreview = CollectionUsagePreviewPanel(project)
@@ -277,7 +285,8 @@ class FindCollectionUsagesFrontendAction : AnAction(
 
         fun showResponse(response: CollectionUsageFindResponse) {
             this.response = response
-            titleLabel.text = "'${response.targetName.ifBlank { "컬렉션" }}' 사용 위치 · " +
+            val targetDisplayName = response.targetName.ifBlank { "컬렉션" }
+            titleLabel.text = "'$targetDisplayName' 사용 위치 · " +
                 "${response.collectionKind.ifBlank { "C# collection" }} · ${formatScope(response.scope)}"
             renderer.targetName = response.targetName
 
@@ -306,7 +315,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
             }
 
             selectedCategoryIds.clear()
-            selectedCategoryIds += categories.filter { it.defaultSelected }.map { it.id }
+            selectedCategoryIds += defaultSelectedCategoryIds()
             selectedOperationIds.clear()
             selectedOperationIds += operationFilters.map { it.id }
             collapsedCategoryIds.clear()
@@ -410,11 +419,15 @@ class FindCollectionUsagesFrontendAction : AnAction(
             filtersPanel.border = JBUI.Borders.empty()
             operationFiltersPanel.background = UsagePopupColors.panelBackground
             operationFiltersPanel.border = JBUI.Borders.empty()
+            configureShowReadByDefaultCheckBox()
 
             val filtersStack = JPanel(BorderLayout())
             filtersStack.background = UsagePopupColors.panelBackground
             filtersStack.border = JBUI.Borders.empty(0, 6, 1, 6)
-            filtersStack.add(createFilterSection("유형", filtersPanel, prominent = true), BorderLayout.NORTH)
+            filtersStack.add(
+                createFilterSection("유형", filtersPanel, prominent = true, trailingComponent = showReadByDefaultCheckBox),
+                BorderLayout.NORTH
+            )
             filtersStack.add(createFilterSection("상세", operationFiltersPanel, prominent = false), BorderLayout.CENTER)
 
             val topPanel = JPanel(BorderLayout())
@@ -452,7 +465,12 @@ class FindCollectionUsagesFrontendAction : AnAction(
             return panel
         }
 
-        private fun createFilterSection(title: String, contentPanel: JPanel, prominent: Boolean): JPanel {
+        private fun createFilterSection(
+            title: String,
+            contentPanel: JPanel,
+            prominent: Boolean,
+            trailingComponent: JComponent? = null
+        ): JPanel {
             val titleLabel = JBLabel(title)
             titleLabel.foreground = if (prominent) UsagePopupColors.primaryForeground else UsagePopupColors.mutedForeground
             titleLabel.font = titleLabel.font.deriveFont(
@@ -472,7 +490,37 @@ class FindCollectionUsagesFrontendAction : AnAction(
             contentPanel.background = section.background
             section.add(titleLabel, BorderLayout.WEST)
             section.add(contentPanel, BorderLayout.CENTER)
+            if (trailingComponent != null) {
+                trailingComponent.background = section.background
+                section.add(trailingComponent, BorderLayout.EAST)
+            }
             return section
+        }
+
+        private fun configureShowReadByDefaultCheckBox() {
+            showReadByDefaultCheckBox.isSelected = showReadByDefault
+            showReadByDefaultCheckBox.isOpaque = false
+            showReadByDefaultCheckBox.isFocusable = false
+            showReadByDefaultCheckBox.foreground = UsagePopupColors.mutedForeground
+            showReadByDefaultCheckBox.font = showReadByDefaultCheckBox.font.deriveFont(
+                Font.PLAIN,
+                showReadByDefaultCheckBox.font.size2D - 1f
+            )
+            showReadByDefaultCheckBox.border = JBUI.Borders.empty(0, 8, 0, 0)
+            showReadByDefaultCheckBox.addActionListener {
+                showReadByDefault = showReadByDefaultCheckBox.isSelected
+                propertiesComponent.setValue(
+                    SHOW_READ_BY_DEFAULT_PROPERTY,
+                    showReadByDefault,
+                    true
+                )
+            }
+        }
+
+        private fun defaultSelectedCategoryIds(): List<String> {
+            return categories
+                .filter { it.defaultSelected && (showReadByDefault || it.id != READ_CATEGORY_ID) }
+                .map { it.id }
         }
 
         private fun showMessageCard(title: String, description: String, icon: Icon?, spinning: Boolean) {
@@ -807,6 +855,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
         val structureUsage: Color = JBColor(Color(0x227A46), Color(0x72D39B))
         val assignmentUsage: Color = JBColor(Color(0x9A6512), Color(0xE4B363))
         val elementWrite: Color = JBColor(Color(0x8E4DB8), Color(0xD7A0FF))
+        val elementMethodCall: Color = JBColor(Color(0x6A5FB5), Color(0xB8AEFF))
         val referenceUsage: Color = JBColor(Color(0x2F65B0), Color(0x8BB8FF))
         val readUsage: Color = JBColor(Color(0x2B7180), Color(0x7ECFDB))
         val removeOperation: Color = JBColor(Color(0xA0442C), Color(0xF0A06A))
@@ -820,6 +869,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionStructureUsage" -> structureUsage
                 "CollectionAssignment" -> assignmentUsage
                 "ElementWrite" -> elementWrite
+                "ElementMethodCall" -> elementMethodCall
                 "ElementAlias", "ElementEscape", "CollectionEscape" -> referenceUsage
                 "CollectionRead" -> readUsage
                 else -> mutedForeground
@@ -836,8 +886,9 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "SetOperation" -> setMathOperation
                 "CollectionInitialization", "CollectionAssignment" -> assignmentUsage
                 "ElementContentWrite" -> elementWrite
-                "ElementReference", "CollectionReference" -> referenceUsage
-                "ElementRead", "ConditionRead", "EnumerationRead", "CopyRead" -> readUsage
+                "DirectElementMethodCall" -> elementMethodCall
+                "ElementReference", "CollectionReference", "ByRefCollectionReference" -> referenceUsage
+                "ElementRead", "ConditionRead", "ConditionComparisonRead", "EnumerationRead", "CopyRead", "QueryRead" -> readUsage
                 else -> colorForKind(kind)
             }
         }
@@ -847,6 +898,7 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 "CollectionStructureUsage" -> JBColor(Color(0xB7F1CD), Color(0x295A3B))
                 "CollectionAssignment" -> JBColor(Color(0xFFE2A3), Color(0x604A24))
                 "ElementWrite" -> JBColor(Color(0xFFD2D2), Color(0x663638))
+                "ElementMethodCall" -> JBColor(Color(0xDCD7FF), Color(0x49406F))
                 "ElementAlias", "ElementEscape", "CollectionEscape" -> JBColor(Color(0xCFE2FF), Color(0x334F78))
                 "CollectionRead" -> JBColor(Color(0xC9F0F5), Color(0x2D5861))
                 else -> highlightBackground
@@ -1219,22 +1271,24 @@ class FindCollectionUsagesFrontendAction : AnAction(
         private const val DEFAULT_FIND_USAGES_ACTION_ID = "FindUsages"
         private const val MESSAGE_CARD = "message"
         private const val RESULTS_CARD = "results"
+        private const val READ_CATEGORY_ID = "read"
+        private const val SHOW_READ_BY_DEFAULT_PROPERTY = "CollectionUsageFinder.showReadByDefault"
+        private const val LEGACY_INCLUDE_READ_USAGES_PROPERTY = "CollectionUsageFinder.includeReadUsages"
 
         private fun createUsageCategories(): List<UsageCategory> {
             return listOf(
-                UsageCategory("structure", "원소 추가/삭제", UsagePopupColors.structureUsage, AllIcons.General.Add) {
-                    it.kind == "CollectionStructureUsage"
+                UsageCategory("write", "쓰기", UsagePopupColors.elementWrite, AllIcons.Actions.ShowWriteAccess) {
+                    it.kind == "CollectionStructureUsage" ||
+                        it.kind == "CollectionAssignment" ||
+                        it.kind == "ElementWrite"
                 },
-                UsageCategory("assignment", "컬렉션 대입", UsagePopupColors.assignmentUsage, AllIcons.Actions.Replace) {
-                    it.kind == "CollectionAssignment"
+                UsageCategory("transfer", "전달·호출", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
+                    it.kind == "ElementMethodCall" ||
+                        it.kind == "ElementAlias" ||
+                        it.kind == "ElementEscape" ||
+                        it.kind == "CollectionEscape"
                 },
-                UsageCategory("write", "내용물 수정", UsagePopupColors.elementWrite, AllIcons.Actions.Edit) {
-                    it.kind == "ElementWrite"
-                },
-                UsageCategory("reference", "레퍼런스 넘기기", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
-                    it.kind == "ElementAlias" || it.kind == "ElementEscape" || it.kind == "CollectionEscape"
-                },
-                UsageCategory("read", "읽기", UsagePopupColors.readUsage, AllIcons.General.Information, defaultSelected = false) {
+                UsageCategory(READ_CATEGORY_ID, "읽기", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
                     it.kind == "CollectionRead"
                 }
             )
@@ -1266,8 +1320,11 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 UsageOperationFilter("collection-assignment", "컬렉션 대입", UsagePopupColors.assignmentUsage, AllIcons.Actions.Replace) {
                     it.operationKind == "CollectionAssignment"
                 },
-                UsageOperationFilter("element-content-write", "내용물 수정", UsagePopupColors.elementWrite, AllIcons.Actions.Edit) {
+                UsageOperationFilter("element-content-write", "내용물 수정", UsagePopupColors.elementWrite, AllIcons.Actions.ShowWriteAccess) {
                     it.operationKind == "ElementContentWrite"
+                },
+                UsageOperationFilter("direct-element-method-call", "직접 호출", UsagePopupColors.elementMethodCall, AllIcons.Nodes.Method) {
+                    it.operationKind == "DirectElementMethodCall"
                 },
                 UsageOperationFilter("element-reference", "원소 레퍼런스", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
                     it.operationKind == "ElementReference"
@@ -1275,17 +1332,26 @@ class FindCollectionUsagesFrontendAction : AnAction(
                 UsageOperationFilter("collection-reference", "컬렉션 레퍼런스", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
                     it.operationKind == "CollectionReference"
                 },
-                UsageOperationFilter("element-read", "원소 읽기", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                UsageOperationFilter("by-ref-collection-reference", "참조 인자", UsagePopupColors.referenceUsage, AllIcons.Actions.Forward) {
+                    it.operationKind == "ByRefCollectionReference"
+                },
+                UsageOperationFilter("element-read", "원소 읽기", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
                     it.operationKind == "ElementRead"
                 },
-                UsageOperationFilter("condition-read", "상태/조건 확인", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                UsageOperationFilter("condition-read", "상태/조건 확인", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
                     it.operationKind == "ConditionRead"
                 },
-                UsageOperationFilter("enumeration-read", "순회", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                UsageOperationFilter("condition-comparison-read", "조건 비교", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
+                    it.operationKind == "ConditionComparisonRead"
+                },
+                UsageOperationFilter("enumeration-read", "순회", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
                     it.operationKind == "EnumerationRead"
                 },
-                UsageOperationFilter("copy-read", "복사/뷰", UsagePopupColors.readUsage, AllIcons.General.Information) {
+                UsageOperationFilter("copy-read", "복사/뷰", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
                     it.operationKind == "CopyRead"
+                },
+                UsageOperationFilter("query-read", "쿼리", UsagePopupColors.readUsage, AllIcons.Actions.ShowReadAccess) {
+                    it.operationKind == "QueryRead"
                 }
             )
         }
@@ -1294,9 +1360,10 @@ class FindCollectionUsagesFrontendAction : AnAction(
             return when (kind) {
                 "CollectionStructureUsage" -> AllIcons.General.Add
                 "CollectionAssignment" -> AllIcons.Actions.Replace
-                "ElementWrite" -> AllIcons.Actions.Edit
+                "ElementWrite" -> AllIcons.Actions.ShowWriteAccess
+                "ElementMethodCall" -> AllIcons.Nodes.Method
                 "ElementAlias", "ElementEscape", "CollectionEscape" -> AllIcons.Actions.Forward
-                "CollectionRead" -> AllIcons.General.Information
+                "CollectionRead" -> AllIcons.Actions.ShowReadAccess
                 else -> null
             }
         }

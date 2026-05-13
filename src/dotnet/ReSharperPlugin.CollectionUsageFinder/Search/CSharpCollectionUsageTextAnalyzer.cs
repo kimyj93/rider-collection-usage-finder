@@ -65,9 +65,29 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             "GetEnumerator",
             "Where",
             "Select",
+            "OrderBy",
+            "OrderByDescending",
+            "ThenBy",
+            "ThenByDescending",
+            "SelectMany",
+            "GroupBy",
+            "Distinct",
+            "Skip",
+            "Take",
+            "SkipWhile",
+            "TakeWhile",
+            "Count",
+            "LongCount",
+            "Sum",
+            "Min",
+            "Max",
+            "Average",
             "ToArray",
             "ToList",
-            "ToDictionary"
+            "ToDictionary",
+            "ToHashSet",
+            "CopyTo",
+            "AsReadOnly"
         };
 
         private static readonly string[] ReadUsagePropertyNames =
@@ -88,6 +108,16 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         private static readonly string ReadUsagePropertiesPattern = string.Join("|", ReadUsagePropertyNames.Select(Regex.Escape));
         private static readonly ConcurrentDictionary<string, AnalyzerRegexSet> RegexSetCache =
             new ConcurrentDictionary<string, AnalyzerRegexSet>();
+
+        private static readonly ISet<string> ExcludedElementMethodNames =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "ToString",
+                "GetHashCode",
+                "Equals",
+                "GetType",
+                "CompareTo"
+            };
 
         private static readonly string[] MultiCharacterMutationOperators =
         {
@@ -123,6 +153,7 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             CollectStructuralUsages(sourceText, sanitizedText, regexSet, lineMap, isTargetReferenceAllowed, occurrences);
             CollectDirectElementWrites(sourceText, sanitizedText, regexSet, lineMap, isTargetReferenceAllowed, occurrences);
             CollectBalancedIndexerUsages(sourceText, sanitizedText, regexSet, lineMap, isTargetReferenceAllowed, occurrences);
+            CollectElementMethodCalls(sourceText, sanitizedText, regexSet, lineMap, isTargetReferenceAllowed, occurrences);
             var aliases = CollectAliases(sourceText, sanitizedText, regexSet, lineMap, isTargetReferenceAllowed, occurrences);
             CollectAliasElementWrites(sourceText, sanitizedText, regexSet, lineMap, aliases, occurrences);
             CollectEscapes(sourceText, sanitizedText, regexSet, lineMap, isTargetReferenceAllowed, occurrences);
@@ -280,6 +311,34 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 occurrences);
         }
 
+        private static void CollectElementMethodCalls(
+            string sourceText,
+            string sanitizedText,
+            AnalyzerRegexSet regexSet,
+            SourceLineMap lineMap,
+            Func<int, bool> isTargetReferenceAllowed,
+            ICollection<CollectionUsageOccurrence> occurrences)
+        {
+            foreach (Match match in regexSet.DirectElementMethodCall.Matches(sanitizedText))
+            {
+                if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
+                    continue;
+
+                var methodName = match.Groups["member"].Value;
+                if (ExcludedElementMethodNames.Contains(methodName))
+                    continue;
+
+                AddTargetOccurrence(
+                    sourceText,
+                    match,
+                    CollectionUsageKind.ElementMethodCall,
+                    CollectionUsageOperationKind.DirectElementMethodCall,
+                    methodName,
+                    lineMap,
+                    occurrences);
+            }
+        }
+
         private static IReadOnlyCollection<AliasScope> CollectAliases(
             string sourceText,
             string sanitizedText,
@@ -418,12 +477,67 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 isTargetReferenceAllowed,
                 occurrences);
 
+            AddTargetMatches(
+                sourceText,
+                sanitizedText,
+                regexSet.CollectionLocalAliasEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageOperationKind.CollectionReference,
+                "AliasCollection",
+                lineMap,
+                isTargetReferenceAllowed,
+                occurrences);
+
+            AddTargetMatches(
+                sourceText,
+                sanitizedText,
+                regexSet.CollectionObjectInitializerEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageOperationKind.CollectionReference,
+                "ObjectInitializerCollection",
+                lineMap,
+                isTargetReferenceAllowed,
+                occurrences);
+
+            foreach (Match match in regexSet.CollectionTupleEscape.Matches(sanitizedText))
+            {
+                if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed) || !IsTupleEscapeMatch(sanitizedText, match))
+                    continue;
+
+                AddTargetOccurrence(
+                    sourceText,
+                    match,
+                    CollectionUsageKind.CollectionEscape,
+                    CollectionUsageOperationKind.CollectionReference,
+                    "TupleCollection",
+                    lineMap,
+                    occurrences);
+            }
+
+            foreach (Match match in regexSet.ByRefCollectionArgumentEscape.Matches(sanitizedText))
+            {
+                if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
+                    continue;
+
+                AddTargetOccurrence(
+                    sourceText,
+                    match,
+                    CollectionUsageKind.CollectionEscape,
+                    CollectionUsageOperationKind.ByRefCollectionReference,
+                    match.Groups["modifier"].Value,
+                    lineMap,
+                    occurrences);
+            }
+
             foreach (Match match in regexSet.CollectionArgumentEscape.Matches(sanitizedText))
             {
                 if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
                     continue;
 
                 var targetGroup = match.Groups["target"];
+                if (HasNonReadOccurrenceCovering(occurrences, targetGroup.Index))
+                    continue;
+
                 if (LooksLikeDeclarationTarget(sanitizedText, targetGroup.Index))
                     continue;
 
@@ -446,6 +560,28 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             Func<int, bool> isTargetReferenceAllowed,
             ICollection<CollectionUsageOccurrence> occurrences)
         {
+            AddTargetMatches(
+                sourceText,
+                sanitizedText,
+                regexSet.ConditionComparisonRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageOperationKind.ConditionComparisonRead,
+                "ConditionComparison",
+                lineMap,
+                isTargetReferenceAllowed,
+                occurrences);
+
+            AddTargetMatches(
+                sourceText,
+                sanitizedText,
+                regexSet.QueryRead,
+                CollectionUsageKind.CollectionRead,
+                CollectionUsageOperationKind.QueryRead,
+                "Query",
+                lineMap,
+                isTargetReferenceAllowed,
+                occurrences);
+
             foreach (Match match in regexSet.ReadMemberUsage.Matches(sanitizedText))
             {
                 if (!IsTargetMatchAllowed(match, isTargetReferenceAllowed))
@@ -550,6 +686,17 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 case "GetEnumerator":
                 case "Where":
                 case "Select":
+                case "OrderBy":
+                case "OrderByDescending":
+                case "ThenBy":
+                case "ThenByDescending":
+                case "SelectMany":
+                case "GroupBy":
+                case "Distinct":
+                case "Skip":
+                case "Take":
+                case "SkipWhile":
+                case "TakeWhile":
                 case "Keys":
                 case "Values":
                     return CollectionUsageOperationKind.EnumerationRead;
@@ -558,6 +705,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 case "ToArray":
                 case "ToList":
                 case "ToDictionary":
+                case "ToHashSet":
+                case "CopyTo":
+                case "AsReadOnly":
                     return CollectionUsageOperationKind.CopyRead;
 
                 default:
@@ -883,6 +1033,59 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             return previousCharacter == '>' || previousCharacter == ']' || previousCharacter == '?';
         }
 
+        private static bool IsTupleEscapeMatch(string text, Match match)
+        {
+            var openParen = FindTupleOpeningParen(text, match.Index);
+            if (openParen < 0)
+                return false;
+
+            var previous = FindPreviousNonWhitespace(text, openParen - 1);
+            if (previous < 0)
+                return true;
+
+            var previousCharacter = text[previous];
+            if (previousCharacter == '=' || previousCharacter == '?' || previousCharacter == ':' ||
+                previousCharacter == '(' || previousCharacter == ',' || previousCharacter == '[' ||
+                previousCharacter == '{')
+            {
+                return true;
+            }
+
+            if (!IsIdentifierPart(previousCharacter))
+                return false;
+
+            var previousIdentifier = GetIdentifierEndingAt(text, previous);
+            return previousIdentifier == "return" || previousIdentifier == "yield";
+        }
+
+        private static int FindTupleOpeningParen(string text, int offset)
+        {
+            if (offset >= 0 && offset < text.Length && text[offset] == '(')
+                return offset;
+
+            var depth = 0;
+            for (var i = Math.Min(offset, text.Length - 1); i >= 0; i--)
+            {
+                if (text[i] == ')')
+                {
+                    depth++;
+                }
+                else if (text[i] == '(')
+                {
+                    if (depth == 0)
+                        return i;
+
+                    depth--;
+                }
+                else if (depth == 0 && (text[i] == ';' || text[i] == '{' || text[i] == '}'))
+                {
+                    break;
+                }
+            }
+
+            return -1;
+        }
+
         private static int FindPreviousNonWhitespace(string text, int offset)
         {
             var current = offset;
@@ -932,6 +1135,12 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                     $@"(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}\s*{MutationOperatorPattern}");
                 DirectElementWrite = CreateRegex(
                     $@"(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}\s*\.\s*[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*{MutationOperatorPattern}");
+                DirectElementMethodCall = CreateRegex(
+                    $@"(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}\s*(?:\?\.\s*|\.\s*)(?<member>[A-Za-z_]\w*)\s*\(");
+                ConditionComparisonRead = CreateRegex(
+                    $@"(?:(?<target>\b{targetPattern})\s*(?:==|!=)\s*(?:null|\b[A-Za-z_]\w*)|(?:null|\b[A-Za-z_]\w*)\s*(?:==|!=)\s*(?<target>\b{targetPattern})|(?<target>\b{targetPattern})\s+is\s+(?:not\s+)?null|ReferenceEquals\s*\(\s*(?:(?<target>\b{targetPattern})\s*,[^)]*|[^,)]*,\s*(?<target>\b{targetPattern}))\s*\))");
+                QueryRead = CreateRegex(
+                    $@"\b(?:from|join)\s+[A-Za-z_]\w*\s+in\s+(?<target>\b{targetPattern})\b");
                 ReadMemberUsage = CreateRegex(
                     $@"(?<target>\b{targetPattern})\s*{CollectionMemberAccessPattern}(?<member>{ReadUsageMembersPattern})\s*\(");
                 ReadPropertyUsage = CreateRegex(
@@ -943,15 +1152,23 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 ReturnEscape = CreateRegex(
                     $@"\breturn\s+(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;");
                 AssignmentEscape = CreateRegex(
-                    $@"(?:^|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;");
+                    $@"(?:^\s*|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>{targetPattern})\s*{CollectionIndexerPattern}\s*;");
                 ArgumentEscape = CreateRegex(
                     $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*\([^;\r\n]*(?<target>\b{targetPattern})\s*{CollectionIndexerPattern}(?!\s*\.)[^;\r\n]*\)");
                 CollectionReturnEscape = CreateRegex(
                     $@"\breturn\s+(?<target>\b{targetPattern})\s*;");
                 CollectionAssignmentEscape = CreateRegex(
-                    $@"(?:^|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)?\s*=\s*(?<target>\b{targetPattern})\s*;");
+                    $@"(?:^\s*|[;\{{]\s*)[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*\s*=\s*(?<target>\b{targetPattern})\s*;");
+                CollectionLocalAliasEscape = CreateRegex(
+                    $@"(?:^\s*|[;\{{]\s*)(?:var|[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*(?:\s*<[^;\r\n=]+>)?(?:\s*\[\])?)\s+[A-Za-z_]\w*\s*=\s*(?<target>\b{targetPattern})\s*;");
+                CollectionObjectInitializerEscape = CreateRegex(
+                    $@"\b[A-Za-z_]\w*\s*=\s*(?<target>\b{targetPattern})\b\s*(?=[,}}])");
+                CollectionTupleEscape = CreateRegex(
+                    $@"(?:\(\s*|,\s*)(?<target>\b{targetPattern})\b\s*(?=,|\))");
+                ByRefCollectionArgumentEscape = CreateRegex(
+                    $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b|nameof\b|typeof\b|sizeof\b|ReferenceEquals\b)[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?(?:\s*\.\s*[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?)*\s*\([^;\r\n]*(?<modifier>\b(?:ref|out|in)\b)\s+(?:this\s*\.\s*)?(?<target>\b{targetPattern})\b(?!\s*(?:[\.\[]|=>))[^;\r\n]*\)");
                 CollectionArgumentEscape = CreateRegex(
-                    $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b|nameof\b|typeof\b|sizeof\b)[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?(?:\s*\.\s*[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?)*\s*\([^;\r\n]*(?<target>\b{targetPattern})\b(?!\s*(?:[\.\[]|=>))[^;\r\n]*\)");
+                    $@"\b(?!if\b|for\b|foreach\b|while\b|switch\b|using\b|lock\b|return\b|nameof\b|typeof\b|sizeof\b|ReferenceEquals\b)[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?(?:\s*\.\s*[A-Za-z_]\w*(?:\s*<[^;\r\n()]+>)?)*\s*\([^;\r\n]*(?<target>\b{targetPattern})\b(?!\s*(?:[\.\[]|=>))[^;\r\n]*\)");
             }
 
             public Regex TargetReferences { get; }
@@ -961,6 +1178,12 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             public Regex StructuralIndexerUsage { get; }
 
             public Regex DirectElementWrite { get; }
+
+            public Regex DirectElementMethodCall { get; }
+
+            public Regex ConditionComparisonRead { get; }
+
+            public Regex QueryRead { get; }
 
             public Regex ReadMemberUsage { get; }
 
@@ -979,6 +1202,14 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
             public Regex CollectionReturnEscape { get; }
 
             public Regex CollectionAssignmentEscape { get; }
+
+            public Regex CollectionLocalAliasEscape { get; }
+
+            public Regex CollectionObjectInitializerEscape { get; }
+
+            public Regex CollectionTupleEscape { get; }
+
+            public Regex ByRefCollectionArgumentEscape { get; }
 
             public Regex CollectionArgumentEscape { get; }
 

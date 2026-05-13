@@ -13,6 +13,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         public static readonly OccurrenceKind ElementWrite =
             OccurrenceKind.CreateSemantic("Element Write", true);
 
+        public static readonly OccurrenceKind ElementMethodCall =
+            OccurrenceKind.CreateSemantic("Element Method Call", true);
+
         public static readonly OccurrenceKind ElementAlias =
             OccurrenceKind.CreateSemantic("Element Alias", true);
 
@@ -37,6 +40,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
 
                 case CollectionUsageKind.ElementWrite:
                     return ElementWrite;
+
+                case CollectionUsageKind.ElementMethodCall:
+                    return ElementMethodCall;
 
                 case CollectionUsageKind.ElementAlias:
                     return ElementAlias;
@@ -67,6 +73,9 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
 
                 case CollectionUsageKind.ElementWrite:
                     return "Element Write";
+
+                case CollectionUsageKind.ElementMethodCall:
+                    return "Element Method Call";
 
                 case CollectionUsageKind.ElementAlias:
                     return "Element Alias";

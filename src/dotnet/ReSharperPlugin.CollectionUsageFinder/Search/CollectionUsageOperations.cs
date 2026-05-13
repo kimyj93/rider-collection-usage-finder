@@ -1,4 +1,4 @@
-using JetBrains.Annotations;
+﻿using JetBrains.Annotations;
 
 namespace ReSharperPlugin.CollectionUsageFinder.Search
 {
@@ -84,17 +84,29 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
                 case CollectionUsageOperationKind.CollectionReference:
                     return "컬렉션 레퍼런스";
 
+                case CollectionUsageOperationKind.ByRefCollectionReference:
+                    return "참조 인자";
+
                 case CollectionUsageOperationKind.ElementRead:
                     return "원소 읽기";
 
                 case CollectionUsageOperationKind.ConditionRead:
                     return "상태/조건 확인";
 
+                case CollectionUsageOperationKind.ConditionComparisonRead:
+                    return "조건 비교";
+
                 case CollectionUsageOperationKind.EnumerationRead:
                     return "순회";
 
                 case CollectionUsageOperationKind.CopyRead:
                     return "복사/뷰";
+
+                case CollectionUsageOperationKind.QueryRead:
+                    return "쿼리";
+
+                case CollectionUsageOperationKind.DirectElementMethodCall:
+                    return "직접 호출";
 
                 default:
                     return "컬렉션 사용";

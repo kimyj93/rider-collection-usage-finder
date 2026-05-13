@@ -154,7 +154,17 @@ class C
     }
 }", "list");
 
-            Assert.That(occurrences, Is.Empty);
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionRead
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ConditionComparisonRead
+            }));
+            Assert.That(
+                occurrences.Any(static occurrence => occurrence.Kind == CollectionUsageKind.CollectionAssignment),
+                Is.False);
         }
 
         [Test]
@@ -208,6 +218,78 @@ class C
                 "Foreach",
                 "Values",
                 "ToList"
+            }));
+        }
+
+        [Test]
+        public void Analyze_FindsConditionComparisonReadUsages()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> list, System.Collections.Generic.List<Item> other)
+    {
+        if (list == null)
+            return;
+
+        if (null != list)
+            return;
+
+        if (list is not null)
+            return;
+
+        if (ReferenceEquals(list, null))
+            return;
+
+        if (list != other)
+            return;
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.All.EqualTo(CollectionUsageKind.CollectionRead));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.ConditionComparisonRead));
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "if (list == null)",
+                "if (null != list)",
+                "if (list is not null)",
+                "if (ReferenceEquals(list, null))",
+                "if (list != other)"
+            }));
+        }
+
+        [Test]
+        public void Analyze_FindsAdditionalLinqAndQueryReadUsages()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> list, Item[] buffer)
+    {
+        var ordered = list.OrderBy(static item => item.Id);
+        var flattened = list.SelectMany(static item => item.Children);
+        var groups = list.GroupBy(static item => item.Id);
+        var count = list.Count();
+        var hashSet = list.ToHashSet();
+        list.CopyTo(buffer);
+        var query = from item in list
+                    where item.Enabled
+                    select item;
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.All.EqualTo(CollectionUsageKind.CollectionRead));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.EnumerationRead,
+                CollectionUsageOperationKind.EnumerationRead,
+                CollectionUsageOperationKind.EnumerationRead,
+                CollectionUsageOperationKind.ConditionRead,
+                CollectionUsageOperationKind.CopyRead,
+                CollectionUsageOperationKind.CopyRead,
+                CollectionUsageOperationKind.QueryRead
             }));
         }
 
@@ -679,6 +761,110 @@ class C
                 "current = list;",
                 "return list;"
             }));
+        }
+
+        [Test]
+        public void Analyze_FindsByRefCollectionReferenceArguments()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> list)
+    {
+        Mutate(ref list);
+        Replace(out list);
+        Inspect(in list);
+        Process(list);
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.EqualTo(new[]
+            {
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageKind.CollectionEscape,
+                CollectionUsageKind.CollectionEscape
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationKind), Is.EqualTo(new[]
+            {
+                CollectionUsageOperationKind.ByRefCollectionReference,
+                CollectionUsageOperationKind.ByRefCollectionReference,
+                CollectionUsageOperationKind.ByRefCollectionReference,
+                CollectionUsageOperationKind.CollectionReference
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.OperationName), Is.EqualTo(new[]
+            {
+                "ref",
+                "out",
+                "in",
+                "ArgumentCollection"
+            }));
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "Mutate(ref list);",
+                "Replace(out list);",
+                "Inspect(in list);",
+                "Process(list);"
+            }));
+        }
+
+        [Test]
+        public void Analyze_FindsCollectionReferenceAliasesObjectInitializersAndTuples()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    (int, System.Collections.Generic.List<Item>) M(System.Collections.Generic.List<Item> list)
+    {
+        var alias = list;
+        System.Collections.Generic.IEnumerable<Item> typedAlias = list;
+        var config = new Config { Items = list };
+        var tuple = (list, typedAlias);
+        return (1, list);
+    }
+}", "list");
+
+            Assert.That(occurrences.Select(static occurrence => occurrence.Kind), Is.All.EqualTo(CollectionUsageKind.CollectionEscape));
+            Assert.That(
+                occurrences.Select(static occurrence => occurrence.OperationKind),
+                Is.All.EqualTo(CollectionUsageOperationKind.CollectionReference));
+            Assert.That(occurrences.Select(static occurrence => occurrence.Text), Is.EqualTo(new[]
+            {
+                "var alias = list;",
+                "System.Collections.Generic.IEnumerable<Item> typedAlias = list;",
+                "var config = new Config { Items = list };",
+                "var tuple = (list, typedAlias);",
+                "return (1, list);"
+            }));
+        }
+
+        [Test]
+        public void Analyze_FindsDirectElementMethodCallsWithoutFollowingAliases()
+        {
+            var occurrences = analyzer.Analyze(@"
+class C
+{
+    void M(System.Collections.Generic.List<Item> list)
+    {
+        list[0].Reset();
+        list[1]?.Apply(1);
+        var item = list[2];
+        item.Reset();
+        list[3].ToString();
+    }
+}", "list");
+
+            Assert.That(
+                occurrences.Where(static occurrence => occurrence.Kind == CollectionUsageKind.ElementMethodCall)
+                    .Select(static occurrence => occurrence.Text),
+                Is.EqualTo(new[]
+                {
+                    "list[0].Reset();",
+                    "list[1]?.Apply(1);"
+                }));
+            Assert.That(
+                occurrences.Any(static occurrence => occurrence.Text == "item.Reset();"),
+                Is.False);
         }
 
         [Test]

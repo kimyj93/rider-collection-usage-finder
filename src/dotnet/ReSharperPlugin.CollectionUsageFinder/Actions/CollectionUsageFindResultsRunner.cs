@@ -668,18 +668,18 @@ namespace ReSharperPlugin.CollectionUsageFinder.Actions
             switch (kind)
             {
                 case CollectionUsageKind.CollectionStructureUsage:
-                    return "원소 추가/삭제";
-
                 case CollectionUsageKind.CollectionAssignment:
-                    return "컬렉션 대입";
-
                 case CollectionUsageKind.ElementWrite:
-                    return "내용물 수정";
+                    return "쓰기";
 
+                case CollectionUsageKind.ElementMethodCall:
                 case CollectionUsageKind.ElementAlias:
                 case CollectionUsageKind.ElementEscape:
                 case CollectionUsageKind.CollectionEscape:
-                    return "레퍼런스 넘기기";
+                    return "전달·호출";
+
+                case CollectionUsageKind.CollectionRead:
+                    return "읽기";
 
                 default:
                     return "컬렉션 사용";

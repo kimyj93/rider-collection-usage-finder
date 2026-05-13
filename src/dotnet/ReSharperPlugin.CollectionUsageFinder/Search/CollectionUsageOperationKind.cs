@@ -13,9 +13,13 @@ namespace ReSharperPlugin.CollectionUsageFinder.Search
         ElementContentWrite,
         ElementReference,
         CollectionReference,
+        ByRefCollectionReference,
         ElementRead,
         ConditionRead,
+        ConditionComparisonRead,
         EnumerationRead,
-        CopyRead
+        CopyRead,
+        QueryRead,
+        DirectElementMethodCall
     }
 }
